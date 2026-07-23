@@ -7,12 +7,26 @@ l'environnement (GROQ_API_KEY) au moment de l'instanciation du provider.
 from __future__ import annotations
 
 import os
+import sys
 from pathlib import Path
 
 import yaml
 from pydantic import BaseModel, Field
 
-_DEFAULT_CONFIG_PATH = Path(__file__).resolve().parents[2] / "config" / "default.yaml"
+
+def _default_config_path() -> Path:
+    """Chemin de config/default.yaml.
+
+    Dans l'app packagée (PyInstaller), `__file__` ne pointe pas vers une
+    arborescence source réelle : le fichier est alors cherché à côté du
+    bundle (sys._MEIPASS), où il est inclus explicitement (voir lumio.spec).
+    """
+    if getattr(sys, "frozen", False):
+        return Path(getattr(sys, "_MEIPASS", "")) / "config" / "default.yaml"
+    return Path(__file__).resolve().parents[2] / "config" / "default.yaml"
+
+
+_DEFAULT_CONFIG_PATH = _default_config_path()
 
 
 class LLMConfig(BaseModel):

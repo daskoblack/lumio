@@ -15,7 +15,7 @@ from __future__ import annotations
 import tempfile
 from pathlib import Path
 
-from ...core.proc import run
+from ...core.proc import resolve_binary, run
 from .base import TimelineEntry, VideoEngine
 
 # Durée plancher par image pour le concat demuxer (évite une entrée à 0s
@@ -63,7 +63,7 @@ class FFmpegVideoEngine(VideoEngine):
         out_video = tmp_dir / "video_silent.mp4"
         await run(
             [
-                "ffmpeg", "-y",
+                resolve_binary("ffmpeg"), "-y",
                 "-f", "concat", "-safe", "0", "-i", str(list_path),
                 "-vsync", "vfr",
                 "-pix_fmt", "yuv420p",
@@ -79,7 +79,7 @@ class FFmpegVideoEngine(VideoEngine):
             raise ValueError("Aucun segment audio dans la timeline (synthèse manquante ?).")
 
         out_audio = tmp_dir / "audio_full.mp3"
-        cmd = ["ffmpeg", "-y"]
+        cmd = [resolve_binary("ffmpeg"), "-y"]
         for p in audio_paths:
             cmd += ["-i", p]
         filter_inputs = "".join(f"[{i}:a]" for i in range(len(audio_paths)))
@@ -91,7 +91,7 @@ class FFmpegVideoEngine(VideoEngine):
     async def _mux(self, video_path: Path, audio_path: Path, out_path: Path) -> None:
         await run(
             [
-                "ffmpeg", "-y",
+                resolve_binary("ffmpeg"), "-y",
                 "-i", str(video_path),
                 "-i", str(audio_path),
                 "-map", "0:v:0", "-map", "1:a:0",

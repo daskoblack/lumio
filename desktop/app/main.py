@@ -22,12 +22,19 @@ from .api import Api
 _DEV_URL = "http://localhost:5173"
 
 
-def _frontend_dist_path() -> Path:
+def _bundle_root() -> Path:
     if getattr(sys, "frozen", False):  # exécuté depuis un .exe PyInstaller
-        base = Path(sys._MEIPASS)  # type: ignore[attr-defined]
-    else:
-        base = Path(__file__).resolve().parents[1]
-    return base / "frontend" / "dist" / "index.html"
+        return Path(sys._MEIPASS)  # type: ignore[attr-defined]
+    return Path(__file__).resolve().parents[1]
+
+
+def _frontend_dist_path() -> Path:
+    return _bundle_root() / "frontend" / "dist" / "index.html"
+
+
+def _icon_path() -> str | None:
+    icon = _bundle_root() / "frontend" / "lumio_icon.ico"
+    return str(icon) if icon.exists() else None
 
 
 def main() -> None:
@@ -45,7 +52,7 @@ def main() -> None:
         background_color="#14131c",
     )
     api.set_window(window)
-    webview.start(debug=is_dev)
+    webview.start(debug=is_dev, icon=_icon_path())
 
 
 if __name__ == "__main__":

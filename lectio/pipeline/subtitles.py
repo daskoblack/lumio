@@ -15,7 +15,7 @@ from pathlib import Path
 
 from ..core.config import SubtitlesConfig
 from ..core.models import Course
-from ..core.proc import run
+from ..core.proc import resolve_binary, run
 from ..providers.stt.base import STTProvider, WordTiming
 
 
@@ -87,7 +87,7 @@ async def mux_subtitles(video_path: str, srt_path: str, out_path: str) -> str:
     """Incruste les sous-titres en piste souple (mov_text) : pas de ré-encodage vidéo."""
     await run(
         [
-            "ffmpeg", "-y",
+            resolve_binary("ffmpeg"), "-y",
             "-i", video_path,
             "-i", srt_path,
             "-map", "0", "-map", "1",

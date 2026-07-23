@@ -20,3 +20,7 @@ dist/
 
 # App desktop Lumio (frontend Node)
 desktop/frontend/node_modules/
+
+# Binaires FFmpeg vendorisés pour l'empaquetage (~200 Mo, pas dans git :
+# voir desktop/vendor/README.md pour les récupérer)
+desktop/vendor/ffmpeg/

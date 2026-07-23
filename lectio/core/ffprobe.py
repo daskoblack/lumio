@@ -8,14 +8,14 @@ from __future__ import annotations
 
 import json
 
-from .proc import run
+from .proc import resolve_binary, run
 
 
 async def measure_duration_s(media_path: str) -> float:
     """Retourne la durée réelle du média en secondes (précision ffprobe)."""
     stdout = await run(
         [
-            "ffprobe",
+            resolve_binary("ffprobe"),
             "-v", "error",
             "-show_entries", "format=duration",
             "-of", "json",

@@ -44,15 +44,29 @@ class Api:
         self._config.paths.workspace = str(_DEFAULT_WORKSPACE)
         settings_store.apply_to_environment(settings_store.load_settings())
 
+        # Boucle asyncio UNIQUE, persistante pour toute la vie de l'app : le
+        # client Groq (httpx.AsyncClient) reste attaché à cette même boucle au
+        # lieu d'être recréé puis abandonné à chaque appel (ce qui laissait
+        # des connexions orphelines se fermer sur une boucle déjà détruite —
+        # inoffensif, mais du gaspillage et du bruit inutile dans les logs).
+        self._loop = asyncio.new_event_loop()
+        self._loop_thread = threading.Thread(target=self._loop.run_forever, daemon=True)
+        self._loop_thread.start()
+
+        # Un seul Orchestrator réutilisé : ses fournisseurs (LLM/TTS/STT) ne
+        # sont donc construits qu'une fois, pas à chaque clic.
+        self._orchestrator_instance = Orchestrator(self._config)
+
     def set_window(self, window: webview.Window) -> None:
         self._window = window
 
     def _orchestrator(self) -> Orchestrator:
-        return Orchestrator(self._config)
+        return self._orchestrator_instance
 
     def _run(self, coro):
         with self._lock:
-            return asyncio.run(coro)
+            future = asyncio.run_coroutine_threadsafe(coro, self._loop)
+            return future.result()
 
     def _progress_emitter(self, stage: str):
         def emit(label: str, done: int, total: int) -> None:
@@ -94,7 +108,7 @@ class Api:
         if self._window is None:
             return None
         result = self._window.create_file_dialog(
-            webview.OPEN_DIALOG, file_types=("Fichiers PDF (*.pdf)",)
+            webview.FileDialog.OPEN, file_types=("Fichiers PDF (*.pdf)",)
         )
         return result[0] if result else None
 

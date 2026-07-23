@@ -3,8 +3,25 @@
 from __future__ import annotations
 
 import asyncio
+import sys
+from pathlib import Path
 
 from .exceptions import RenderError
+
+
+def resolve_binary(name: str) -> str:
+    """Résout le chemin d'un binaire externe (ffmpeg/ffprobe).
+
+    Dans l'app packagée (PyInstaller), le binaire est fourni à côté du
+    bundle (sys._MEIPASS/bin/) : le père de l'utilisateur n'a pas ffmpeg
+    installé. En développement (CLI), on compte simplement sur le PATH.
+    """
+    if getattr(sys, "frozen", False):
+        exe_name = f"{name}.exe" if sys.platform == "win32" else name
+        bundled = Path(getattr(sys, "_MEIPASS", "")) / "bin" / exe_name
+        if bundled.exists():
+            return str(bundled)
+    return name
 
 
 async def run(cmd: list[str]) -> str:
