@@ -24,3 +24,6 @@ desktop/frontend/node_modules/
 # Binaires FFmpeg vendorisés pour l'empaquetage (~200 Mo, pas dans git :
 # voir desktop/vendor/README.md pour les récupérer)
 desktop/vendor/ffmpeg/
+
+# Sortie de l'installeur Inno Setup (~90 Mo, publié en Release GitHub, pas commit)
+installer/
