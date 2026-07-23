@@ -9,6 +9,28 @@ from __future__ import annotations
 
 import asyncio
 from pathlib import Path
+from typing import Callable
+
+# Signature : on_progress(label, terminés, total) — appelé au fil de l'avancement.
+# None par défaut : le CLI n'en a pas besoin, seule l'app desktop s'en sert.
+ProgressCallback = Callable[[str, int, int], None]
+
+
+class _ProgressTracker:
+    """Compteur d'avancement partagé entre coroutines (sûr : asyncio est mono-thread,
+    les incréments entre deux `await` ne peuvent jamais se chevaucher)."""
+
+    def __init__(self, stage: str, total: int, on_progress: ProgressCallback | None) -> None:
+        self._total = total
+        self._done = 0
+        self._on_progress = on_progress
+        if on_progress:
+            on_progress(f"{stage}…", 0, max(total, 1))
+
+    def tick(self, label: str) -> None:
+        self._done += 1
+        if self._on_progress:
+            self._on_progress(label, self._done, max(self._total, 1))
 
 from ..core.config import Config
 from ..core.exceptions import InvalidStateError
@@ -129,10 +151,9 @@ class Orchestrator:
             section.target_duration_s = duration_s  # None = retour au mode auto
         self._store.save(course)
         return sections
-        return section
 
     # --- Étape 2 : génération des scripts, PAGE PAR PAGE avec contexte (-> SCRIPTED) ---
-    async def run_scripting(self, job_id: str) -> Course:
+    async def run_scripting(self, job_id: str, on_progress: ProgressCallback | None = None) -> Course:
         course = self._store.load(job_id)
         if course.status not in (CourseStatus.ANALYZED, CourseStatus.SCRIPTED):
             raise InvalidStateError(
@@ -143,11 +164,14 @@ class Orchestrator:
         tol = self._config.scripting.word_budget_tolerance
         max_passes = self._config.scripting.max_generation_passes
 
+        total = sum(len(course.section_slides(s)) for s in course.sections)
+        progress = _ProgressTracker("Écriture du script", total, on_progress)
+
         # Sections en concurrence entre elles ; SLIDES d'une même section en
         # séquence (chacune a besoin du texte déjà généré pour la précédente).
         await asyncio.gather(
             *(
-                self._script_section(course, section, rate, tol, max_passes)
+                self._script_section(course, section, rate, tol, max_passes, progress)
                 for section in course.sections
             )
         )
@@ -157,7 +181,13 @@ class Orchestrator:
         return course
 
     async def _script_section(
-        self, course: Course, section: Section, rate: float, tol: float, max_passes: int
+        self,
+        course: Course,
+        section: Section,
+        rate: float,
+        tol: float,
+        max_passes: int,
+        progress: "_ProgressTracker",
     ) -> None:
         slides = course.section_slides(section)
         if not slides:
@@ -180,6 +210,7 @@ class Orchestrator:
             )
             slide.estimated_duration_s = words_to_duration(slide.script.word_count_actual, rate)
             previous_text = slide.script.text
+            progress.tick(f"Page {slide.source_page} : {section.title}")
 
         section.estimated_duration_s = sum(s.estimated_duration_s for s in slides)
         if section.target_duration_s:
@@ -188,7 +219,7 @@ class Orchestrator:
             )
 
     # --- Étape 3 : synthèse vocale par slide + calibration + correction bornée (-> SYNTHESIZED) ---
-    async def run_synthesis(self, job_id: str) -> Course:
+    async def run_synthesis(self, job_id: str, on_progress: ProgressCallback | None = None) -> Course:
         course = self._store.load(job_id)
         if course.status not in (CourseStatus.SCRIPTED, CourseStatus.SYNTHESIZED):
             raise InvalidStateError(
@@ -207,10 +238,13 @@ class Orchestrator:
         max_passes = self._config.scripting.max_generation_passes
         threshold = self._config.synthesis.deviation_threshold
 
+        total = sum(len(course.section_slides(s)) for s in course.sections)
+        progress = _ProgressTracker("Enregistrement de la voix", total, on_progress)
+
         await asyncio.gather(
             *(
                 self._synthesize_section(
-                    course, section, voice, audio_dir, tol, threshold, max_passes
+                    course, section, voice, audio_dir, tol, threshold, max_passes, progress
                 )
                 for section in course.sections
             )
@@ -230,22 +264,22 @@ class Orchestrator:
         tol: float,
         threshold: float,
         max_passes: int,
+        progress: "_ProgressTracker",
     ) -> None:
         slides = course.section_slides(section)
         if not slides:
             return
 
-        await asyncio.gather(
-            *(
-                synthesis.synthesize_slide(
-                    self.llm, self.tts, section, slide, i + 1, len(slides),
-                    slides[i - 1].script.text if i > 0 else None,
-                    slides[i + 1] if i + 1 < len(slides) else None,
-                    voice, audio_dir, tol, threshold, max_passes,
-                )
-                for i, slide in enumerate(slides)
+        async def _one(i: int, slide) -> None:
+            await synthesis.synthesize_slide(
+                self.llm, self.tts, section, slide, i + 1, len(slides),
+                slides[i - 1].script.text if i > 0 else None,
+                slides[i + 1] if i + 1 < len(slides) else None,
+                voice, audio_dir, tol, threshold, max_passes,
             )
-        )
+            progress.tick(f"Page {slide.source_page} : {section.title}")
+
+        await asyncio.gather(*(_one(i, slide) for i, slide in enumerate(slides)))
 
         section.actual_duration_s = sum(s.actual_duration_s or 0.0 for s in slides)
         if section.target_duration_s:
@@ -254,7 +288,7 @@ class Orchestrator:
             )
 
     # --- Étape 4 : rendu des slides + timeline + montage FFmpeg (-> RENDERED) ---
-    async def run_rendering(self, job_id: str) -> Course:
+    async def run_rendering(self, job_id: str, on_progress: ProgressCallback | None = None) -> Course:
         course = self._store.load(job_id)
         if course.status not in (CourseStatus.SYNTHESIZED, CourseStatus.RENDERED):
             raise InvalidStateError(
@@ -266,21 +300,27 @@ class Orchestrator:
         output_dir = job_dir / "output"
         output_dir.mkdir(parents=True, exist_ok=True)
 
+        if on_progress:
+            on_progress("Mise en page des pages du PDF…", 0, 2)
         slides_pipeline.render_all(
             course.source_pdf, course.slides, slides_dir,
             self._config.slides.width, self._config.slides.height,
         )
 
+        if on_progress:
+            on_progress("Montage de la vidéo…", 1, 2)
         entries = timeline_pipeline.build_timeline(course)
         video_path = str(output_dir / "video.mp4")
         await self.video.assemble(entries, video_path)
+        if on_progress:
+            on_progress("Montage terminé", 2, 2)
 
         course.status = CourseStatus.RENDERED
         self._store.save(course)
         return course
 
     # --- Étape 5 : sous-titres (Whisper) + incrustation souple (-> DONE) ---
-    async def run_subtitles(self, job_id: str) -> Course:
+    async def run_subtitles(self, job_id: str, on_progress: ProgressCallback | None = None) -> Course:
         course = self._store.load(job_id)
         if course.status not in (CourseStatus.RENDERED, CourseStatus.DONE):
             raise InvalidStateError(
@@ -292,10 +332,16 @@ class Orchestrator:
         srt_path = output_dir / "subtitles.srt"
         final_path = output_dir / "video_final.mp4"
 
+        if on_progress:
+            on_progress("Transcription des sous-titres…", 0, 2)
         await subtitles_pipeline.generate_srt(
             self.stt, course, self._config.subtitles, srt_path
         )
+        if on_progress:
+            on_progress("Incrustation dans la vidéo…", 1, 2)
         await subtitles_pipeline.mux_subtitles(str(video_path), str(srt_path), str(final_path))
+        if on_progress:
+            on_progress("Terminé", 2, 2)
 
         course.status = CourseStatus.DONE
         self._store.save(course)

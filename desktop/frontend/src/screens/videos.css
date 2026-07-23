@@ -1,0 +1,23 @@
+.empty-card { padding: 24px 26px; color: var(--ink-dim); font-size: 15px; }
+
+.video-list { display: flex; flex-direction: column; gap: 14px; margin-top: 10px; }
+.video-card {
+  padding: 20px 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+}
+.video-info { display: flex; flex-direction: column; gap: 6px; }
+.video-info h3 { font-family: var(--font-display); font-weight: 700; font-size: 17px; margin: 0; }
+.status-pill {
+  display: inline-flex;
+  align-self: flex-start;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 3px 10px;
+  border-radius: var(--radius-pill);
+  background: var(--glass-strong);
+  color: var(--ink-dim);
+}
+.status-pill.done { background: color-mix(in srgb, var(--success) 20%, transparent); color: var(--success); }

@@ -1,0 +1,61 @@
+/* Système de design Lumio : glass-neumorphism, porté depuis la maquette validée. */
+
+:root {
+  --bg: #14131c;
+  --bg-2: #1b1a25;
+  --glow: #ffb454;
+  --glow-2: #ff8c6b;
+  --glow-contrast: #14131c;
+  --glass: rgba(255, 255, 255, 0.055);
+  --glass-strong: rgba(255, 255, 255, 0.09);
+  --glass-border: rgba(255, 255, 255, 0.14);
+  --ink: #f5f1e8;
+  --ink-dim: #a79e9a;
+  --ink-faint: #7a726f;
+  --shadow-dark: rgba(0, 0, 0, 0.55);
+  --shadow-light: rgba(255, 255, 255, 0.05);
+  --success: #8fd19e;
+  --danger: #e2867a;
+
+  --radius-xl: 32px;
+  --radius-lg: 24px;
+  --radius-md: 16px;
+  --radius-pill: 999px;
+
+  --font-display: "Segoe UI Variable Display", "Segoe UI Rounded", ui-rounded, system-ui, sans-serif;
+  --font-body: "Segoe UI", system-ui, -apple-system, sans-serif;
+}
+
+:root[data-theme='light'] {
+  --bg: #f2f0ee;
+  --bg-2: #eae7e2;
+  --glow: #c97a1e;
+  --glow-2: #e06a4a;
+  --glow-contrast: #ffffff;
+  --glass: rgba(20, 19, 28, 0.04);
+  --glass-strong: rgba(20, 19, 28, 0.065);
+  --glass-border: rgba(20, 19, 28, 0.09);
+  --ink: #201d28;
+  --ink-dim: #6b6560;
+  --ink-faint: #948d88;
+  --shadow-dark: rgba(20, 15, 10, 0.16);
+  --shadow-light: rgba(255, 255, 255, 0.9);
+}
+
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme='dark']) {
+    --bg: #f2f0ee;
+    --bg-2: #eae7e2;
+    --glow: #c97a1e;
+    --glow-2: #e06a4a;
+    --glow-contrast: #ffffff;
+    --glass: rgba(20, 19, 28, 0.04);
+    --glass-strong: rgba(20, 19, 28, 0.065);
+    --glass-border: rgba(20, 19, 28, 0.09);
+    --ink: #201d28;
+    --ink-dim: #6b6560;
+    --ink-faint: #948d88;
+    --shadow-dark: rgba(20, 15, 10, 0.16);
+    --shadow-light: rgba(255, 255, 255, 0.9);
+  }
+}

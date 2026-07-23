@@ -1,0 +1,20 @@
+.progress-wrap { display: flex; flex-direction: column; gap: 8px; }
+.progress-label {
+  display: flex; justify-content: space-between; align-items: baseline;
+  font-size: 15px; font-weight: 600;
+}
+.progress-count { color: var(--ink-dim); font-variant-numeric: tabular-nums; font-weight: 500; }
+.progress-track {
+  height: 16px;
+  border-radius: var(--radius-pill);
+  background: var(--glass-strong);
+  box-shadow: inset 2px 2px 6px var(--shadow-dark), inset -2px -2px 6px var(--shadow-light);
+  overflow: hidden;
+}
+.progress-fill {
+  height: 100%;
+  border-radius: var(--radius-pill);
+  background: linear-gradient(90deg, var(--glow), var(--glow-2));
+  transition: width 0.3s ease;
+  box-shadow: 0 0 12px 1px color-mix(in srgb, var(--glow) 60%, transparent);
+}

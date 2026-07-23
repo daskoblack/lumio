@@ -1,0 +1,125 @@
+@import './tokens.css';
+
+* { box-sizing: border-box; }
+
+html, body, #root { height: 100%; }
+
+body {
+  margin: 0;
+  font-family: var(--font-body);
+  color: var(--ink);
+  background: var(--bg);
+  overflow: hidden; /* l'app desktop n'a pas de scroll de page : chaque écran gère le sien */
+}
+
+button, input { font-family: inherit; }
+
+:focus-visible { outline: 2px solid var(--glow); outline-offset: 2px; }
+
+.stage { position: relative; height: 100vh; display: flex; isolation: isolate; }
+
+.main {
+  position: relative;
+  z-index: 2;
+  flex: 1;
+  padding: 36px 44px 36px 28px;
+  max-width: 1180px;
+  overflow-y: auto;
+}
+.topline {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 26px;
+  gap: 20px;
+}
+
+/* --- Champ de lueur ambiant --- */
+.glow-field {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  background: radial-gradient(120% 90% at 15% 0%, var(--bg-2), var(--bg) 60%);
+}
+.blob { position: absolute; border-radius: 50%; filter: blur(70px); opacity: 0.55; }
+.blob-a {
+  width: 46vw; height: 46vw; top: -14vw; left: 8vw;
+  background: radial-gradient(circle, var(--glow), transparent 70%);
+  animation: drift-a 26s ease-in-out infinite;
+}
+.blob-b {
+  width: 38vw; height: 38vw; bottom: -12vw; right: 4vw;
+  background: radial-gradient(circle, var(--glow-2), transparent 70%);
+  animation: drift-b 32s ease-in-out infinite;
+}
+@keyframes drift-a { 0%, 100% { transform: translate(0, 0) scale(1); } 50% { transform: translate(3vw, 4vw) scale(1.08); } }
+@keyframes drift-b { 0%, 100% { transform: translate(0, 0) scale(1); } 50% { transform: translate(-3vw, -3vw) scale(1.05); } }
+@media (prefers-reduced-motion: reduce) { .blob-a, .blob-b { animation: none; } }
+
+/* --- Carte glass-neumorphique générique --- */
+.card {
+  border-radius: var(--radius-xl);
+  background: var(--glass);
+  border: 1px solid var(--glass-border);
+  backdrop-filter: blur(22px) saturate(140%);
+  -webkit-backdrop-filter: blur(22px) saturate(140%);
+  box-shadow: inset 0 1px 0 var(--shadow-light), 0 24px 60px -30px var(--shadow-dark);
+}
+
+.inset {
+  background: var(--glass-strong);
+  box-shadow: inset 2px 2px 6px var(--shadow-dark), inset -2px -2px 6px var(--shadow-light);
+}
+
+h1.hero {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: clamp(28px, 3.2vw, 44px);
+  line-height: 1.05;
+  letter-spacing: -0.02em;
+  text-wrap: balance;
+  margin: 0 0 10px;
+}
+h1.hero .glow-text {
+  font-weight: 800;
+  background: linear-gradient(100deg, var(--glow) 10%, var(--glow-2) 90%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+p.lede { font-size: 17px; color: var(--ink-dim); max-width: 58ch; line-height: 1.55; margin: 0 0 30px; }
+
+.btn-primary {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 16px;
+  color: var(--glow-contrast);
+  background: linear-gradient(135deg, var(--glow), var(--glow-2));
+  border: none;
+  border-radius: var(--radius-pill);
+  padding: 15px 30px;
+  cursor: pointer;
+  box-shadow: 0 14px 30px -12px color-mix(in srgb, var(--glow) 65%, transparent);
+  transition: transform 0.12s ease, box-shadow 0.12s ease, opacity 0.12s ease;
+}
+.btn-primary:hover:not(:disabled) { transform: translateY(-2px); box-shadow: 0 18px 36px -12px color-mix(in srgb, var(--glow) 75%, transparent); }
+.btn-primary:active:not(:disabled) { transform: translateY(0); }
+.btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.btn-ghost {
+  border: 1px solid var(--glass-border);
+  background: var(--glass);
+  color: var(--ink-dim);
+  border-radius: var(--radius-pill);
+  padding: 8px 16px;
+  font-size: 13px;
+  cursor: pointer;
+}
+.btn-ghost:hover { color: var(--ink); }
+
+.eyebrow { font-size: 12.5px; text-transform: uppercase; letter-spacing: 1.6px; color: var(--ink-faint); font-weight: 600; }
+
+.screen-enter { animation: rise 0.35s ease; }
+@keyframes rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+@media (prefers-reduced-motion: reduce) { .screen-enter { animation: none; } }

@@ -1,0 +1,53 @@
+.settings-grid { display: grid; gap: 18px; max-width: 620px; }
+.field-card { padding: 24px 26px; }
+.field-card label {
+  display: block;
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 16px;
+  margin-bottom: 6px;
+}
+.field-card .hint { font-size: 14px; color: var(--ink-dim); margin: 0 0 14px; }
+.field-input-wrap { position: relative; display: flex; align-items: center; }
+.field-input {
+  width: 100%;
+  font-family: var(--font-body);
+  font-size: 16px;
+  padding: 15px 52px 15px 18px;
+  border-radius: var(--radius-md);
+  border: none;
+  color: var(--ink);
+}
+.field-input::placeholder { color: var(--ink-faint); }
+.reveal-btn {
+  position: absolute; right: 8px;
+  width: 38px; height: 38px;
+  border: none; border-radius: 10px;
+  background: transparent;
+  color: var(--ink-dim);
+  display: grid; place-items: center;
+  cursor: pointer;
+}
+.reveal-btn svg { width: 19px; height: 19px; stroke: currentColor; }
+.reveal-btn:hover { color: var(--ink); }
+
+.select-fake {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 13px 15px;
+  border-radius: var(--radius-md);
+}
+.select-fake select {
+  border: none; background: transparent; color: var(--ink);
+  font-size: 15.5px; font-weight: 600; font-family: inherit; width: 100%; cursor: pointer;
+}
+
+.save-row { display: flex; align-items: center; gap: 16px; }
+.status-chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 13.5px; font-weight: 600;
+  color: var(--success);
+}
+.status-chip .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--success); }
+
+a.link { color: var(--glow); font-weight: 600; text-decoration: none; }
+a.link:hover { text-decoration: underline; }

@@ -17,3 +17,6 @@ venv/
 .pytest_cache/
 build/
 dist/
+
+# App desktop Lumio (frontend Node)
+desktop/frontend/node_modules/
