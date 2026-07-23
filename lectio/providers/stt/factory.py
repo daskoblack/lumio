@@ -13,6 +13,8 @@ def build_stt(config: Config) -> STTProvider:
         from .groq_whisper import GroqWhisperSTT
 
         return GroqWhisperSTT(
-            api_key=Config.groq_api_key() or "", model=config.providers.stt.model
+            api_key=Config.groq_api_key() or "",
+            model=config.providers.stt.model,
+            min_interval_s=config.providers.stt.min_interval_s,
         )
     raise STTError(f"Fournisseur STT inconnu : {name!r}")

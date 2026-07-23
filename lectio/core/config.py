@@ -20,6 +20,7 @@ class LLMConfig(BaseModel):
     model: str = "llama-3.3-70b-versatile"
     temperature: float = 0.4
     max_document_chars: int = 24000
+    min_interval_s: float = 2.0  # espacement minimal entre appels (évite les 429 Groq)
 
 
 class TTSConfig(BaseModel):
@@ -30,6 +31,7 @@ class TTSConfig(BaseModel):
 class STTConfig(BaseModel):
     name: str = "groq"
     model: str = "whisper-large-v3-turbo"
+    min_interval_s: float = 2.0  # même compte Groq que le LLM : même précaution
 
 
 class ProvidersConfig(BaseModel):

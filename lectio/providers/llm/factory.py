@@ -17,5 +17,6 @@ def build_llm(config: Config) -> LLMProvider:
             api_key=Config.groq_api_key() or "",
             model=config.providers.llm.model,
             temperature=config.providers.llm.temperature,
+            min_interval_s=config.providers.llm.min_interval_s,
         )
     raise LLMError(f"Fournisseur LLM inconnu : {name!r}")

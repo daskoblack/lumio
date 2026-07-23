@@ -113,16 +113,22 @@ class Orchestrator:
         self._store.save(course)
         return course
 
-    # --- Réglage utilisateur : durée cible d'une section (optionnelle) ---
-    def set_target_duration(
-        self, job_id: str, section_index: int, duration_s: float | None
-    ) -> Section:
+    # --- Réglage utilisateur : durée cible d'une ou plusieurs sections (optionnelle) ---
+    def set_target_durations(
+        self, job_id: str, section_indices: list[int], duration_s: float | None
+    ) -> list[Section]:
         course = self._store.load(job_id)
-        section = course.section_by_index(section_index)
-        if section is None:
-            raise InvalidStateError(f"Section {section_index} inexistante.")
-        section.target_duration_s = duration_s  # None = retour au mode auto
+        sections: list[Section] = []
+        for index in section_indices:
+            section = course.section_by_index(index)
+            if section is None:
+                raise InvalidStateError(f"Section {index} inexistante.")
+            sections.append(section)
+
+        for section in sections:  # tout validé avant de rien muter (pas d'écriture partielle)
+            section.target_duration_s = duration_s  # None = retour au mode auto
         self._store.save(course)
+        return sections
         return section
 
     # --- Étape 2 : génération des scripts, PAGE PAR PAGE avec contexte (-> SCRIPTED) ---

@@ -10,6 +10,7 @@ providers:
     model: llama-3.3-70b-versatile   # modèle Groq par défaut, changeable
     temperature: 0.4
     max_document_chars: 24000        # troncature de sécurité pour l'analyse
+    min_interval_s: 2.0              # espacement minimal entre appels (évite les 429)
 
   tts:
     # Groq (PlayAI) ne supporte pas le français : edge-tts (gratuit, sans clé,
@@ -20,6 +21,7 @@ providers:
   stt:
     name: groq
     model: whisper-large-v3-turbo     # transcription multilingue, timestamps mot-à-mot
+    min_interval_s: 2.0               # même compte Groq que le LLM : même précaution
 
 voice:
   # Débit initial en mots/seconde (~140 mots/min pour du FR).

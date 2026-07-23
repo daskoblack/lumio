@@ -4,7 +4,8 @@ Flux MVP :
   lectio voices                    -> liste les voix FR disponibles (edge-tts)
   lectio analyze cours.pdf --voice fr-FR-HenriNeural
                                     -> crée le job, affiche le plan de sections
-  lectio set-duration <job> -s 2 -d 60s   -> fixe une durée cible (optionnel)
+  lectio set-duration <job> -s 2 -d 60s        -> fixe une durée cible (optionnel)
+  lectio set-duration <job> -s 1,2,19 -d 120s  -> ou sur plusieurs sections d'un coup
   lectio script <job>              -> génère les narrations (page par page, durées contraintes)
   lectio synthesize <job>          -> TTS + durée réelle + calibration + correction
   lectio render <job>              -> vraies pages du PDF + timeline + montage FFmpeg -> MP4
@@ -140,28 +141,38 @@ def analyze(
 @app.command("set-duration")
 def set_duration(
     job: str = typer.Argument(..., help="Identifiant du job."),
-    section: int = typer.Option(..., "--section", "-s", help="Index de la section."),
+    section: str = typer.Option(
+        ..., "--section", "-s",
+        help="Index de section, ou plusieurs séparés par des virgules (ex. 1,2,19,39).",
+    ),
     duration: str = typer.Option(
         ..., "--duration", "-d",
         help="Durée cible (ex. 90, 90s, 2m, 1m30s) ou 'auto' pour repasser en automatique.",
     ),
 ) -> None:
-    """Fixe (ou annule) la durée cible d'une section."""
+    """Fixe (ou annule) la durée cible d'une ou plusieurs sections à la fois."""
     orch = _orchestrator()
     try:
+        indices = [int(tok.strip()) for tok in section.split(",") if tok.strip()]
+    except ValueError:
+        _fail(f"Index de section invalide : {section!r} (attendu : des entiers séparés par des virgules).")
+
+    try:
         value = None if duration.strip().lower() == "auto" else parse_duration(duration)
-        sec = orch.set_target_duration(job, section, value)
+        secs = orch.set_target_durations(job, indices, value)
     except (LectioError, ValueError) as exc:
         _fail(str(exc))
 
+    label = ", ".join(str(i) for i in indices)
     if value is None:
-        console.print(f"Section {section} : durée remise en [cyan]auto[/].")
+        console.print(f"Section(s) {label} : durée remise en [cyan]auto[/].")
     else:
-        console.print(
-            f"Section {section} « {sec.title} » : cible fixée à "
-            f"[cyan]{format_duration(value)}[/] "
-            f"(estimation actuelle {format_duration(sec.estimated_duration_s)})."
-        )
+        for sec in secs:
+            console.print(
+                f"Section {sec.index} « {sec.title} » : cible fixée à "
+                f"[cyan]{format_duration(value)}[/] "
+                f"(estimation actuelle {format_duration(sec.estimated_duration_s)})."
+            )
 
 
 @app.command()
