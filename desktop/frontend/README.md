@@ -14,8 +14,12 @@ npm run dev          # serveur Vite sur http://localhost:5173
 Puis, dans un autre terminal (depuis la racine du dépôt), avec `LUMIO_DEV=1` :
 
 ```bash
-LUMIO_DEV=1 python desktop/app/main.py
+LUMIO_DEV=1 python -m desktop.app.main
 ```
+
+⚠️ Toujours lancer avec `-m` (pas `python desktop/app/main.py`) : `main.py` utilise des
+imports relatifs (`from .api import Api`), qui ne fonctionnent que si le fichier est
+exécuté comme faisant partie du package `desktop.app`, pas comme un script isolé.
 
 pywebview charge alors le serveur Vite (rechargement à chaud) au lieu du build statique.
 

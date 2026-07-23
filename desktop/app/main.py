@@ -3,6 +3,10 @@
 En développement (LUMIO_DEV=1) : charge le serveur Vite (npm run dev) pour
 le rechargement à chaud. En production : charge les fichiers statiques
 buildés (frontend/dist/index.html), inclus dans le paquet PyInstaller.
+
+À lancer avec `python -m desktop.app.main` depuis la racine du dépôt
+(jamais `python desktop/app/main.py` directement : les imports relatifs
+de ce module exigent qu'il soit exécuté comme partie du package `desktop.app`).
 """
 
 from __future__ import annotations
