@@ -4,9 +4,9 @@ Règle d'or : ne lit QUE `actual_duration_s` (mesurée post-TTS). Les durées
 cible/estimée n'ont servi qu'à contraindre la génération du texte en amont ;
 elles n'apparaissent jamais ici.
 
-Si une section a plusieurs slides, sa durée réelle est répartie également
-entre elles (limite MVP documentée : pas de synchronisation fine avec le
-contenu de la narration).
+Chaque slide a désormais son propre audio (phase 3) : la timeline est une
+simple concaténation 1:1, sans découpage artificiel du temps au sein d'une
+section — la synchro image/narration est garantie par construction.
 """
 
 from __future__ import annotations
@@ -21,30 +21,31 @@ def build_timeline(course: Course) -> list[TimelineEntry]:
     cursor = 0.0
 
     for section in sorted(course.sections, key=lambda s: s.index):
-        if section.actual_duration_s is None:
-            raise InvalidStateError(
-                f"Section {section.index} sans durée réelle : "
-                "lance 'synthesize' avant de construire la timeline."
-            )
-        slide_ids = section.slide_ids or [None]  # section sans slide -> un segment virtuel
-        n = len(slide_ids)
-        per_slide = section.actual_duration_s / n
-
-        for i, slide_id in enumerate(slide_ids):
-            slide = course.slide_by_id(slide_id) if slide_id else None
-            if slide is None or not slide.rendered_path:
+        for slide in course.section_slides(section):
+            if slide.actual_duration_s is None:
                 raise InvalidStateError(
-                    f"Slide {slide_id!r} (section {section.index}) non rendue : "
-                    "lance le rendu des slides avant la timeline."
+                    f"Page {slide.source_page} (section {section.index}) sans durée réelle : "
+                    "lance 'synthesize' avant de construire la timeline."
                 )
+            if not slide.rendered_path:
+                raise InvalidStateError(
+                    f"Page {slide.source_page} non rendue : lance le rendu des slides "
+                    "avant la timeline."
+                )
+            if not slide.script or not slide.script.audio_path:
+                raise InvalidStateError(
+                    f"Page {slide.source_page} sans audio : lance 'synthesize' avant "
+                    "la timeline."
+                )
+
             start = cursor
-            end = cursor + per_slide
+            end = cursor + slide.actual_duration_s
             entries.append(
                 TimelineEntry(
                     section_id=section.id,
                     slide_id=slide.id,
                     image_path=slide.rendered_path,
-                    audio_path=section.script.audio_path if i == 0 else None,
+                    audio_path=slide.script.audio_path,
                     start_s=start,
                     end_s=end,
                 )

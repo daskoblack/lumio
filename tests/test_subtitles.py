@@ -3,7 +3,7 @@
 import pytest
 
 from lectio.core.config import SubtitlesConfig
-from lectio.core.models import Course, Script, Section, SectionKind
+from lectio.core.models import Course, Script, Section, SectionKind, Slide
 from lectio.pipeline.subtitles import _format_timestamp, _group_into_captions, generate_srt
 from lectio.providers.stt.base import STTProvider, WordTiming
 
@@ -45,17 +45,21 @@ class _FakeSTT(STTProvider):
 
 @pytest.mark.asyncio
 async def test_generate_srt_offsets_by_section(tmp_path):
-    sections = [
-        Section(
-            index=0, kind=SectionKind.INTRO, title="Intro", actual_duration_s=10.0,
-            script=Script(section_id="", audio_path="a0.mp3"),
+    slides = [
+        Slide(
+            index=0, source_page=1, title="P1", actual_duration_s=10.0,
+            script=Script(slide_id="", audio_path="a0.mp3"),
         ),
-        Section(
-            index=1, kind=SectionKind.CONCEPT, title="Concept", actual_duration_s=20.0,
-            script=Script(section_id="", audio_path="a1.mp3"),
+        Slide(
+            index=1, source_page=2, title="P2", actual_duration_s=20.0,
+            script=Script(slide_id="", audio_path="a1.mp3"),
         ),
     ]
-    course = Course(title="T", source_pdf="x.pdf", sections=sections)
+    sections = [
+        Section(index=0, kind=SectionKind.INTRO, title="Intro", slide_ids=[slides[0].id]),
+        Section(index=1, kind=SectionKind.CONCEPT, title="Concept", slide_ids=[slides[1].id]),
+    ]
+    course = Course(title="T", source_pdf="x.pdf", slides=slides, sections=sections)
     stt = _FakeSTT({
         "a0.mp3": [_word("bonjour", 0.0, 0.5)],
         "a1.mp3": [_word("suite", 0.0, 0.4)],  # doit être décalé de +10s dans le SRT final

@@ -1,7 +1,7 @@
 """Génération des sous-titres (SRT) à partir de la transcription Whisper.
 
-On transcrit l'audio de chaque section (déjà généré en phase 3), puis on
-décale les timestamps par le décalage cumulé de la section dans la vidéo
+On transcrit l'audio de chaque SLIDE (déjà généré en phase 3, une page = un
+audio), puis on décale les timestamps par le décalage cumulé dans la vidéo
 finale (même ordre que la timeline, qui repose sur `actual_duration_s`).
 Les mots sont regroupés en captions selon des conventions standard de
 sous-titrage (nombre de mots / caractères par ligne), configurables mais
@@ -53,28 +53,29 @@ def _group_into_captions(
 async def generate_srt(
     stt: STTProvider, course: Course, config: SubtitlesConfig, out_path: Path
 ) -> str:
-    """Transcrit chaque section, construit le SRT complet, l'écrit sur disque."""
+    """Transcrit chaque slide, construit le SRT complet, l'écrit sur disque."""
     entries: list[str] = []
     index = 1
     cursor = 0.0
 
     for section in sorted(course.sections, key=lambda s: s.index):
-        if section.actual_duration_s is None or not section.script or not section.script.audio_path:
-            continue
+        for slide in course.section_slides(section):
+            if slide.actual_duration_s is None or not slide.script or not slide.script.audio_path:
+                continue
 
-        words = await stt.transcribe_words(section.script.audio_path, course.language)
-        for start, end, text in _group_into_captions(words, config):
-            wrapped = "\n".join(
-                textwrap.wrap(text, width=config.max_chars_per_line)[: config.max_lines]
-            )
-            entries.append(
-                f"{index}\n"
-                f"{_format_timestamp(cursor + start)} --> {_format_timestamp(cursor + end)}\n"
-                f"{wrapped}\n"
-            )
-            index += 1
+            words = await stt.transcribe_words(slide.script.audio_path, course.language)
+            for start, end, text in _group_into_captions(words, config):
+                wrapped = "\n".join(
+                    textwrap.wrap(text, width=config.max_chars_per_line)[: config.max_lines]
+                )
+                entries.append(
+                    f"{index}\n"
+                    f"{_format_timestamp(cursor + start)} --> {_format_timestamp(cursor + end)}\n"
+                    f"{wrapped}\n"
+                )
+                index += 1
 
-        cursor += section.actual_duration_s
+            cursor += slide.actual_duration_s
 
     srt_content = "\n".join(entries)
     out_path.parent.mkdir(parents=True, exist_ok=True)

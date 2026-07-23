@@ -13,7 +13,7 @@ from pathlib import Path
 from ..core.config import Config
 from ..core.exceptions import InvalidStateError
 from ..core.models import Course, CourseStatus, Section
-from ..core.timing import deviation, words_to_duration
+from ..core.timing import deviation, duration_to_words, words_to_duration
 from ..pipeline import analysis, extraction, scripting, sectioning, slides as slides_pipeline
 from ..pipeline import subtitles as subtitles_pipeline
 from ..pipeline import synthesis, timeline as timeline_pipeline
@@ -21,7 +21,7 @@ from ..providers.llm.base import LLMProvider
 from ..providers.llm.factory import build_llm
 from ..providers.stt.base import STTProvider
 from ..providers.stt.factory import build_stt
-from ..providers.tts.base import TTSProvider
+from ..providers.tts.base import TTSProvider, VoiceProfile
 from ..providers.tts.factory import build_tts
 from ..providers.video.base import VideoEngine
 from ..providers.video.factory import build_video_engine
@@ -78,11 +78,17 @@ class Orchestrator:
         return self._stt
 
     # --- Étape 1 : extraction + analyse + découpage (-> ANALYZED) ---
-    async def create_and_analyze(self, pdf_path: str, title: str | None = None) -> Course:
+    async def create_and_analyze(
+        self, pdf_path: str, title: str | None = None, voice_id: str | None = None
+    ) -> Course:
         course = Course(
             title=title or Path(pdf_path).stem,
             source_pdf=str(Path(pdf_path).resolve()),
             language=self._config.language,
+            # Le profil de voix EST l'identifiant de la voix : la calibration du
+            # débit reste ainsi propre à chaque voix (des voix différentes ont
+            # des débits différents), pas partagée sous un profil "default" générique.
+            voice_profile_id=voice_id or self._config.providers.tts.voice,
         )
         self._store.save(course)  # crée le dossier du job tôt
 
@@ -119,7 +125,7 @@ class Orchestrator:
         self._store.save(course)
         return section
 
-    # --- Étape 2 : génération des scripts (-> SCRIPTED) ---
+    # --- Étape 2 : génération des scripts, PAGE PAR PAGE avec contexte (-> SCRIPTED) ---
     async def run_scripting(self, job_id: str) -> Course:
         course = self._store.load(job_id)
         if course.status not in (CourseStatus.ANALYZED, CourseStatus.SCRIPTED):
@@ -131,33 +137,51 @@ class Orchestrator:
         tol = self._config.scripting.word_budget_tolerance
         max_passes = self._config.scripting.max_generation_passes
 
-        # Génération concurrente des sections (async).
-        results = await asyncio.gather(
+        # Sections en concurrence entre elles ; SLIDES d'une même section en
+        # séquence (chacune a besoin du texte déjà généré pour la précédente).
+        await asyncio.gather(
             *(
-                scripting.generate_script(
-                    self.llm, section, self._section_source(course, section), rate, tol, max_passes
-                )
+                self._script_section(course, section, rate, tol, max_passes)
                 for section in course.sections
             )
         )
-
-        for section, script in zip(course.sections, results):
-            section.script = script
-            # Estimation de durée AVANT TTS, affinée par le nb de mots réellement généré.
-            section.estimated_duration_s = words_to_duration(
-                script.word_count_actual, rate
-            )
-            # Écart estimé/cible (indicatif ; l'écart réel sera calculé post-TTS).
-            if section.target_duration_s:
-                section.duration_deviation = deviation(
-                    section.estimated_duration_s, section.target_duration_s
-                )
 
         course.status = CourseStatus.SCRIPTED
         self._store.save(course)
         return course
 
-    # --- Étape 3 : synthèse vocale + calibration + correction bornée (-> SYNTHESIZED) ---
+    async def _script_section(
+        self, course: Course, section: Section, rate: float, tol: float, max_passes: int
+    ) -> None:
+        slides = course.section_slides(section)
+        if not slides:
+            return
+
+        target_words_by_slide: list[int | None] = [None] * len(slides)
+        if section.target_duration_s is not None:
+            total_target_words = duration_to_words(section.target_duration_s, rate)
+            target_words_by_slide = scripting.distribute_target_words(
+                section, slides, total_target_words
+            )
+
+        previous_text: str | None = None
+        for i, slide in enumerate(slides):
+            next_slide = slides[i + 1] if i + 1 < len(slides) else None
+            slide.script = await scripting.generate_slide_script(
+                self.llm, section, slide, i + 1, len(slides),
+                previous_text, next_slide,
+                target_words_by_slide[i], tol, max_passes,
+            )
+            slide.estimated_duration_s = words_to_duration(slide.script.word_count_actual, rate)
+            previous_text = slide.script.text
+
+        section.estimated_duration_s = sum(s.estimated_duration_s for s in slides)
+        if section.target_duration_s:
+            section.duration_deviation = deviation(
+                section.estimated_duration_s, section.target_duration_s
+            )
+
+    # --- Étape 3 : synthèse vocale par slide + calibration + correction bornée (-> SYNTHESIZED) ---
     async def run_synthesis(self, job_id: str) -> Course:
         course = self._store.load(job_id)
         if course.status not in (CourseStatus.SCRIPTED, CourseStatus.SYNTHESIZED):
@@ -170,7 +194,7 @@ class Orchestrator:
 
         voice = self._voice_store.load(
             course.voice_profile_id,
-            self._config.providers.tts.voice,
+            course.voice_profile_id,
             self._config.voice.default_speech_rate_wps,
         )
         tol = self._config.scripting.word_budget_tolerance
@@ -179,16 +203,8 @@ class Orchestrator:
 
         await asyncio.gather(
             *(
-                synthesis.synthesize_section(
-                    self.llm,
-                    self.tts,
-                    section,
-                    self._section_source(course, section),
-                    voice,
-                    audio_dir,
-                    tol,
-                    threshold,
-                    max_passes,
+                self._synthesize_section(
+                    course, section, voice, audio_dir, tol, threshold, max_passes
                 )
                 for section in course.sections
             )
@@ -198,6 +214,38 @@ class Orchestrator:
         course.status = CourseStatus.SYNTHESIZED
         self._store.save(course)
         return course
+
+    async def _synthesize_section(
+        self,
+        course: Course,
+        section: Section,
+        voice: VoiceProfile,
+        audio_dir: Path,
+        tol: float,
+        threshold: float,
+        max_passes: int,
+    ) -> None:
+        slides = course.section_slides(section)
+        if not slides:
+            return
+
+        await asyncio.gather(
+            *(
+                synthesis.synthesize_slide(
+                    self.llm, self.tts, section, slide, i + 1, len(slides),
+                    slides[i - 1].script.text if i > 0 else None,
+                    slides[i + 1] if i + 1 < len(slides) else None,
+                    voice, audio_dir, tol, threshold, max_passes,
+                )
+                for i, slide in enumerate(slides)
+            )
+        )
+
+        section.actual_duration_s = sum(s.actual_duration_s or 0.0 for s in slides)
+        if section.target_duration_s:
+            section.duration_deviation = deviation(
+                section.actual_duration_s, section.target_duration_s
+            )
 
     # --- Étape 4 : rendu des slides + timeline + montage FFmpeg (-> RENDERED) ---
     async def run_rendering(self, job_id: str) -> Course:
@@ -213,7 +261,8 @@ class Orchestrator:
         output_dir.mkdir(parents=True, exist_ok=True)
 
         slides_pipeline.render_all(
-            course.slides, slides_dir, self._config.slides.width, self._config.slides.height
+            course.source_pdf, course.slides, slides_dir,
+            self._config.slides.width, self._config.slides.height,
         )
 
         entries = timeline_pipeline.build_timeline(course)
@@ -245,12 +294,3 @@ class Orchestrator:
         course.status = CourseStatus.DONE
         self._store.save(course)
         return course
-
-    def _section_source(self, course: Course, section: Section) -> str:
-        """Texte source des slides associées à la section (contexte de génération)."""
-        parts = [
-            slide.source_text()
-            for sid in section.slide_ids
-            if (slide := course.slide_by_id(sid))
-        ]
-        return "\n\n".join(p for p in parts if p)

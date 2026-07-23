@@ -15,13 +15,10 @@ from pydantic import BaseModel
 class TimelineEntry(BaseModel):
     """Un segment de la vidéo : une image affichée pendant [start_s, end_s].
 
-    `image_path` est résolu par `pipeline/timeline.py` à partir des slides du
-    Course : le VideoEngine ne connaît jamais les modèles pédagogiques.
-
-    `audio_path` n'est renseigné QUE sur la première entrée d'une section
-    (début d'un nouveau segment audio) ; les entrées suivantes de la même
-    section (autres slides partageant le même audio) le laissent à None.
-    L'assemblage concatène les `audio_path` non nuls, dans l'ordre.
+    `image_path` et `audio_path` sont résolus par `pipeline/timeline.py` à
+    partir des slides du Course : le VideoEngine ne connaît jamais les
+    modèles pédagogiques. Chaque slide a son propre audio (1:1) : la synchro
+    image/narration est garantie par construction, pas par découpage du temps.
     """
 
     section_id: str
