@@ -1,0 +1,48 @@
+# Configuration par défaut de Lectio.
+# Aucune valeur de durée arbitraire : les durées viennent du calcul (mots / débit)
+# ou de l'utilisateur. Le débit lui-même est calibré après TTS (phase 3).
+
+language: fr
+
+providers:
+  llm:
+    name: groq
+    model: llama-3.3-70b-versatile   # modèle Groq par défaut, changeable
+    temperature: 0.4
+    max_document_chars: 24000        # troncature de sécurité pour l'analyse
+
+  tts:
+    # Groq (PlayAI) ne supporte pas le français : edge-tts (gratuit, sans clé,
+    # voix neurales) est utilisé par défaut. Changeable via cette interface.
+    name: edge
+    voice: fr-FR-DeniseNeural         # voix par défaut (fr-FR-HenriNeural en alternative)
+
+  stt:
+    name: groq
+    model: whisper-large-v3-turbo     # transcription multilingue, timestamps mot-à-mot
+
+voice:
+  # Débit initial en mots/seconde (~140 mots/min pour du FR).
+  # Valeur de départ uniquement : recalibrée par voix après chaque TTS.
+  default_speech_rate_wps: 2.3
+
+scripting:
+  word_budget_tolerance: 0.10        # fourchette ±10% tolérée avant correction texte
+  max_generation_passes: 2           # boucle bornée : 1 génération + 1 correction max
+
+synthesis:
+  # Écart |réel - cible| / cible déclenchant l'unique 2e passe TTS.
+  deviation_threshold: 0.12
+
+slides:
+  width: 1920
+  height: 1080
+
+subtitles:
+  # Conventions standard de sous-titrage (pas une durée pédagogique arbitraire).
+  max_chars_per_line: 42
+  max_lines: 2
+  max_words_per_caption: 14
+
+paths:
+  workspace: workspace

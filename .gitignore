@@ -1,0 +1,19 @@
+# Artefacts de jobs (générés, non versionnés)
+workspace/
+
+# Contenu de cours de l'utilisateur (données d'entrée, pas du code)
+*.pdf
+*.pptx
+
+# Secrets
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+build/
+dist/
