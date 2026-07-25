@@ -19,4 +19,13 @@ def build_llm(config: Config) -> LLMProvider:
             temperature=config.providers.llm.temperature,
             min_interval_s=config.providers.llm.min_interval_s,
         )
+    if name == "cerebras":
+        from .cerebras_provider import CerebrasLLM
+
+        return CerebrasLLM(
+            api_key=Config.cerebras_api_key() or "",
+            model=config.providers.llm.model,
+            temperature=config.providers.llm.temperature,
+            min_interval_s=config.providers.llm.min_interval_s,
+        )
     raise LLMError(f"Fournisseur LLM inconnu : {name!r}")

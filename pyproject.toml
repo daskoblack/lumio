@@ -14,6 +14,7 @@ dependencies = [
     "rich>=13.7",
     "pymupdf>=1.24",   # extraction PDF (texte + images + layout)
     "groq>=0.11",      # fournisseur LLM + Whisper (STT), gratuit
+    "cerebras_cloud_sdk>=1.0",  # fournisseur LLM alternatif, gratuit (quota/jour bien plus large)
     "edge-tts>=6.1",   # TTS gratuit, sans clé, voix neurales FR (Groq TTS ne fait pas le français)
     "pillow>=10.0",    # rendu des slides en images (léger, pas de navigateur à installer)
 ]

@@ -110,3 +110,8 @@ class Config(BaseModel):
     def groq_api_key() -> str | None:
         """Clé API Groq depuis l'environnement (jamais depuis un fichier)."""
         return os.environ.get("GROQ_API_KEY")
+
+    @staticmethod
+    def cerebras_api_key() -> str | None:
+        """Clé API Cerebras depuis l'environnement (jamais depuis un fichier)."""
+        return os.environ.get("CEREBRAS_API_KEY")

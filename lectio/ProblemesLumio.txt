@@ -1,0 +1,41 @@
+- ajouter modificateur de voix du module
+- Ajouter de la précision pour les slides ( certaines disparaisent simplement lors de la création de la vidéo ) 
+- pour la création Claude
+- Probleme de slide à certains moments.
+- retirer les sous titres
+- problèmes : lors de la création,  il y a un probleme lors de la lecture de la page ( détaillé ) : quand on regarde la vidéo pour la première fois, si on décide de passer la vidéo ( avancer ) la slide affiché ne change pas, mais elle se change que quand la voix le veut. Pourtant meme si la voix décrit  parfaitement chaques slides, il y a un probleme de montage. ex : Il parle de la partie 1 (slide de la partie 1), puis il passe à la slide 2 (voix) et la slide 2 s'affiche. Mais au bout de genre 80% de ce qu'il a à dire , la slide change totalement et la voix et l'image ne sont pas sychnronisé, donc le découpage devient mauvais. POURTANT, une fois que on recul un peu, tout d'un coup tout se resinchronise. Je pensais d'abords à un probleme de mon pc, mais sa arrive meme quand je partage la vidéo à des gens ( pc, même système IO ). D'où ?
+
+Différentes erreurs : 
+
+- juste apres le téléchargement lors du lancement automatique de l'app : 
+
+Traceback (most recent call last):
+  File "pathlib.py", line 1116, in mkdir
+FileNotFoundError: [WinError 2] Le fichier spécifié est introuvable: 'C:\\Users\\user\\Documents\\Lumio'
+During handling of the above exception, another exception occurred:
+Traceback (most recent call last):
+  File "lumio_launcher.py", line 16, in <module>
+  File "desktop\app\main.py", line 41, in main
+  File "desktop\app\api.py", line 58, in __init__
+  File "lectio\jobs\orchestrator.py", line 64, in __init__
+  File "lectio\jobs\store.py", line 20, in __init__
+  File "pathlib.py", line 1121, in mkdir
+  File "pathlib.py", line 1116, in mkdir
+FileNotFoundError: [WinError 2] Le fichier spécifié est introuvable: 'C:\\Users\\user\\Documents\\Lumio'
+
+-lors de la création de la vidéo (parfois) :
+
+Appel Groq echoue : Error code: 429 - {'error': {'message': 'Rate limit reached for model 'llama-3.3-70b-versatile` in organization
+org_01kxv55f6revwv90na05rrtyjv` service tier `on_demand on tokens per day (TPD): Limit 100000, Used 99544, Requested 620. Please try
+again in 2m21.696s. Need more tokens? Upgrade to Dev Tier today at https://console.groq.com/settings/billing', 'type': 'tokens', 'code':
+'rate_limit_exceeded'}}
+
+- Tester le fait de changer d'IA ( models) parceque sa peut jouer ( proposer la meilleur au jour(le mieux serais gratuite et qui peut tenir sur tout le longs de la création de la vidéo ))
+
+Créer section et sous section si l'IA le juge Nécéssaire
+
+Création de plusieurs vidéo avec un seul diapo pour divisier enp usieur
+
+Ajouter "Tester la voix"
+
+Envisager alternative à Eleven Labs

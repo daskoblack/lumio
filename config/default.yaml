@@ -6,6 +6,12 @@ language: fr
 
 providers:
   llm:
+    # Groq a un plafond de 100 000 tokens/JOUR sur son tier gratuit (peut
+    # etre atteint sur un cours long). Alternative : Cerebras (1 000 000
+    # tokens/jour, 10x plus de marge) - decommenter les 2 lignes ci-dessous
+    # et definir CEREBRAS_API_KEY a la place de GROQ_API_KEY :
+    #   name: cerebras
+    #   model: gpt-oss-120b
     name: groq
     model: llama-3.3-70b-versatile   # modèle Groq par défaut, changeable
     temperature: 0.4
