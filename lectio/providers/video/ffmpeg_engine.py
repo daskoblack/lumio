@@ -26,15 +26,18 @@ from pathlib import Path
 from ...core.proc import resolve_binary, run
 from .base import TimelineEntry, VideoEngine
 
-# Durée plancher par image pour le concat demuxer (évite une entrée à 0s
-# invalide côté FFmpeg si une section ne compte qu'une slide très courte).
-_MIN_IMAGE_DURATION_S = 0.05
-
 # Débit de sortie et intervalle entre images-clés. Une image statique n'a pas
 # besoin d'un débit élevé (pas de mouvement à restituer) ; ce qui compte pour
 # un seek précis est la RÉGULARITÉ des images-clés, pas leur nombre total.
 _OUTPUT_FPS = 10
 _KEYFRAME_INTERVAL_S = 1
+
+# Durée plancher par image : une durée plus courte qu'une période de frame
+# (1/FPS) peut être totalement absorbée par l'arrondi lors du passage à un
+# débit constant -- la slide ne s'affiche alors JAMAIS, même une fraction de
+# seconde (reproduit et vérifié). Trois périodes de marge garantissent sa
+# visibilité réelle quel que soit l'arrondi.
+_MIN_IMAGE_DURATION_S = 3 / _OUTPUT_FPS
 
 
 def _escape_concat_path(path: str) -> str:
