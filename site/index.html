@@ -282,11 +282,11 @@
           <rect x="2" y="4" width="20" height="14" rx="2"/><path d="M8 21h8M12 18v3"/>
         </svg>
       </div>
-      <a class="btn-primary" href="https://github.com/daskoblack/lumio/releases/download/v1.0.0/Lumio-Setup.exe">
+      <a class="btn-primary" href="https://github.com/daskoblack/lumio/releases/latest/download/Lumio-Setup.exe">
         Télécharger pour Windows
       </a>
       <div class="meta-row">
-        <span><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>Version 1.0.0</span>
+        <span><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg><span id="dl-version">Dernière version</span></span>
         <span><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4M12 4l-4 4M12 4l4 4"/><path d="M4 16v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/></svg>~90 Mo</span>
         <span><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="14" rx="2"/></svg>Windows 10 / 11</span>
       </div>
@@ -331,7 +331,11 @@
   fetch('https://api.github.com/repos/daskoblack/lumio/releases/latest')
     .then(r => r.ok ? r.json() : null)
     .then(data => {
-      if (!data || !data.assets || !data.assets.length) return;
+      if (!data) return;
+      if (data.tag_name) {
+        document.getElementById('dl-version').textContent = 'Version ' + data.tag_name.replace(/^v/, '');
+      }
+      if (!data.assets || !data.assets.length) return;
       const total = data.assets.reduce((sum, a) => sum + (a.download_count || 0), 0);
       document.getElementById('dl-count').textContent = total.toLocaleString('fr-FR');
       document.getElementById('dl-count-wrap').classList.remove('hidden');
