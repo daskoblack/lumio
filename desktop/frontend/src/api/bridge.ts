@@ -15,10 +15,13 @@ declare global {
 // (job introuvable, clé API absente, échec FFmpeg...) : jamais juste `Course`.
 type CourseResult = Course | ApiError;
 
+type PreviewVoiceResult = { audio: string } | ApiError;
+
 interface PywebviewApi {
   get_settings(): Promise<Settings>;
   save_settings(groq_api_key: string | null, voice_id: string | null): Promise<Settings>;
   list_voices(): Promise<Voice[]>;
+  preview_voice(voice_id: string): Promise<PreviewVoiceResult>;
   pick_pdf_file(): Promise<string | null>;
   analyze(pdf_path: string, voice_id: string | null, title: string | null): Promise<CourseResult>;
   set_durations(job_id: string, section_indices: number[], duration_s: number | null): Promise<CourseResult>;
@@ -54,6 +57,7 @@ export const bridge = {
   saveSettings: async (groqApiKey: string | null, voiceId: string | null) =>
     (await api()).save_settings(groqApiKey, voiceId),
   listVoices: async () => (await api()).list_voices(),
+  previewVoice: async (voiceId: string) => (await api()).preview_voice(voiceId),
   pickPdfFile: async () => (await api()).pick_pdf_file(),
   analyze: async (pdfPath: string, voiceId: string | null, title: string | null) =>
     (await api()).analyze(pdfPath, voiceId, title),

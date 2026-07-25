@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { bridge } from '../api/bridge';
+import { VoicePreviewButton } from '../components/VoicePreviewButton';
 import { isApiError, type Course, type Voice } from '../types';
 import './home.css';
 
@@ -70,12 +71,15 @@ export function Home({ onCourseReady }: { onCourseReady: (course: Course) => voi
       <div className="row-cards">
         <div className="card mini-card">
           <div className="label">Voix du professeur</div>
-          <div className="select-fake inset">
-            <select value={voiceId} onChange={(e) => handleVoiceChange(e.target.value)}>
-              {voices.map((v) => (
-                <option key={v.id} value={v.id}>{v.id.replace(/^fr-\w+-/, '')} ({v.locale})</option>
-              ))}
-            </select>
+          <div className="voice-row">
+            <div className="select-fake inset">
+              <select value={voiceId} onChange={(e) => handleVoiceChange(e.target.value)}>
+                {voices.map((v) => (
+                  <option key={v.id} value={v.id}>{v.id.replace(/^fr-\w+-/, '')} ({v.locale})</option>
+                ))}
+              </select>
+            </div>
+            {voiceId && <VoicePreviewButton voiceId={voiceId} />}
           </div>
         </div>
         {recentJob && (

@@ -101,6 +101,33 @@ class Api:
             ]
         return sorted(self._run(_list()), key=lambda v: v["locale"])
 
+    def preview_voice(self, voice_id: str) -> dict:
+        """Synthétise une phrase de démonstration et la renvoie en base64
+        (pas de fichier à gérer côté JS : lu directement par un <audio>)."""
+        import base64
+        import tempfile
+        from pathlib import Path
+
+        import edge_tts
+
+        async def _synthesize() -> str:
+            with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as f:
+                tmp_path = f.name
+            try:
+                communicate = edge_tts.Communicate(
+                    "Bonjour, voici un aperçu de cette voix.", voice=voice_id
+                )
+                await communicate.save(tmp_path)
+                data = Path(tmp_path).read_bytes()
+                return "data:audio/mpeg;base64," + base64.b64encode(data).decode("ascii")
+            finally:
+                Path(tmp_path).unlink(missing_ok=True)
+
+        try:
+            return {"audio": self._run(_synthesize())}
+        except Exception as exc:  # noqa: BLE001
+            return _error_dict(exc)
+
     # --- Sélection de fichier natif ---
     def pick_pdf_file(self) -> str | None:
         if self._window is None:

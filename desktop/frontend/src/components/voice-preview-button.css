@@ -1,0 +1,30 @@
+.voice-preview-btn {
+  flex-shrink: 0;
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  border: none;
+  display: grid;
+  place-items: center;
+  background: linear-gradient(135deg, var(--glow), var(--glow-2));
+  color: var(--glow-contrast);
+  cursor: pointer;
+  box-shadow: 0 6px 16px -6px color-mix(in srgb, var(--glow) 65%, transparent);
+  transition: transform 0.12s ease;
+}
+.voice-preview-btn:hover:not(:disabled) { transform: scale(1.06); }
+.voice-preview-btn:disabled { opacity: 0.6; cursor: wait; }
+.voice-preview-btn svg { width: 18px; height: 18px; }
+
+.voice-preview-spinner {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 2px solid color-mix(in srgb, var(--glow-contrast) 40%, transparent);
+  border-top-color: var(--glow-contrast);
+  animation: voice-preview-spin 0.7s linear infinite;
+}
+@keyframes voice-preview-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .voice-preview-spinner { animation: none; }
+}

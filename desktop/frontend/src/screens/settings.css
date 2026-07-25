@@ -8,6 +8,8 @@
   margin-bottom: 6px;
 }
 .field-card .hint { font-size: 14px; color: var(--ink-dim); margin: 0 0 14px; }
+.voice-row { display: flex; align-items: center; gap: 10px; }
+.voice-row .select-fake { flex: 1; }
 .field-input-wrap { position: relative; display: flex; align-items: center; }
 .field-input {
   width: 100%;
