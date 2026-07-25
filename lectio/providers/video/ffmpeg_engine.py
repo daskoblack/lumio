@@ -8,6 +8,14 @@ Stratégie en 3 passes (robuste aux durées/format hétérogènes) :
 
 Aucune connaissance des modèles pédagogiques ici : uniquement des chemins et
 des durées (`TimelineEntry`), conformément à la séparation pédagogie/rendu.
+
+Débit d'images CONSTANT (pas VFR) : avec un débit variable, une slide très
+longue ne produit qu'une poignée d'images réelles dans le fichier, espacées
+irrégulièrement. Un lecteur qui avance/recule dans la vidéo doit alors sauter
+à l'image codée la plus proche, souvent lointaine -> l'image affichée se
+« fige » puis change en retard sur le son, avec un décalage grandissant qui
+ne se résorbe qu'en repassant par une image réellement codée. Un débit
+constant + des images-clés régulières garantit un seek précis n'importe où.
 """
 
 from __future__ import annotations
@@ -21,6 +29,12 @@ from .base import TimelineEntry, VideoEngine
 # Durée plancher par image pour le concat demuxer (évite une entrée à 0s
 # invalide côté FFmpeg si une section ne compte qu'une slide très courte).
 _MIN_IMAGE_DURATION_S = 0.05
+
+# Débit de sortie et intervalle entre images-clés. Une image statique n'a pas
+# besoin d'un débit élevé (pas de mouvement à restituer) ; ce qui compte pour
+# un seek précis est la RÉGULARITÉ des images-clés, pas leur nombre total.
+_OUTPUT_FPS = 10
+_KEYFRAME_INTERVAL_S = 1
 
 
 def _escape_concat_path(path: str) -> str:
@@ -65,7 +79,8 @@ class FFmpegVideoEngine(VideoEngine):
             [
                 resolve_binary("ffmpeg"), "-y",
                 "-f", "concat", "-safe", "0", "-i", str(list_path),
-                "-vsync", "vfr",
+                "-r", str(_OUTPUT_FPS),
+                "-g", str(_OUTPUT_FPS * _KEYFRAME_INTERVAL_S),
                 "-pix_fmt", "yuv420p",
                 "-c:v", "libx264",
                 str(out_video),

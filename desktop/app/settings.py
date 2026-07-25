@@ -10,15 +10,13 @@ import json
 import os
 from pathlib import Path
 
+from . import paths
+
 _DEFAULTS = {"groq_api_key": "", "voice_id": "fr-FR-DeniseNeural"}
 
 
 def _settings_dir() -> Path:
-    appdata = os.environ.get("APPDATA")
-    base = Path(appdata) if appdata else Path.home() / ".config"
-    d = base / "Lumio"
-    d.mkdir(parents=True, exist_ok=True)
-    return d
+    return paths.app_data_dir("Lumio")
 
 
 def _settings_path() -> Path:

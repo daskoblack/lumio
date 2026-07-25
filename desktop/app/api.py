@@ -13,7 +13,6 @@ from __future__ import annotations
 import asyncio
 import json
 import threading
-from pathlib import Path
 
 import webview
 
@@ -21,9 +20,8 @@ from lectio.core.config import Config
 from lectio.core.exceptions import LectioError
 from lectio.jobs.orchestrator import Orchestrator
 
+from . import paths
 from . import settings as settings_store
-
-_DEFAULT_WORKSPACE = Path.home() / "Documents" / "Lumio"
 
 
 def _course_dict(course) -> dict:
@@ -41,7 +39,7 @@ class Api:
         self._lock = threading.Lock()
         self._window: webview.Window | None = None
         self._config = Config.load()
-        self._config.paths.workspace = str(_DEFAULT_WORKSPACE)
+        self._config.paths.workspace = str(paths.default_workspace_dir("Lumio"))
         settings_store.apply_to_environment(settings_store.load_settings())
 
         # Boucle asyncio UNIQUE, persistante pour toute la vie de l'app : le
