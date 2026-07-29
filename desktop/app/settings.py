@@ -1,7 +1,11 @@
-"""Réglages locaux de l'app desktop (clé API, voix par défaut).
+"""Réglages locaux de l'app desktop (clés API, voix par défaut).
 
 Stockés dans le dossier de données utilisateur (indépendant du dossier de
 travail des jobs), modifiables à tout moment depuis l'écran Réglages.
+
+Plusieurs clés d'IA peuvent coexister : la première renseignée sert de
+fournisseur principal, les autres de repli automatique quand un quota
+quotidien tombe en pleine génération (voir providers/llm/chain.py).
 """
 
 from __future__ import annotations
@@ -10,9 +14,17 @@ import json
 import os
 from pathlib import Path
 
+from lectio.core.config import LLM_ENV_KEYS
+
 from . import paths
 
-_DEFAULTS = {"groq_api_key": "", "voice_id": "fr-FR-DeniseNeural"}
+# Un réglage par fournisseur d'IA, plus la voix.
+API_KEY_FIELDS = {name: f"{name}_api_key" for name in LLM_ENV_KEYS}
+
+_DEFAULTS: dict[str, str] = {
+    **{field: "" for field in API_KEY_FIELDS.values()},
+    "voice_id": "fr-FR-DeniseNeural",
+}
 
 
 def _settings_dir() -> Path:
@@ -34,18 +46,27 @@ def load_settings() -> dict:
     return {**_DEFAULTS, **data}
 
 
-def save_settings(groq_api_key: str | None = None, voice_id: str | None = None) -> dict:
+def save_settings(updates: dict | None = None, **kwargs) -> dict:
+    """Met à jour les réglages fournis (les autres restent inchangés)."""
     current = load_settings()
-    if groq_api_key is not None:
-        current["groq_api_key"] = groq_api_key
-    if voice_id is not None:
-        current["voice_id"] = voice_id
+    for key, value in {**(updates or {}), **kwargs}.items():
+        if value is not None and key in _DEFAULTS:
+            current[key] = value
     _settings_path().write_text(json.dumps(current, indent=2), encoding="utf-8")
     return current
 
 
 def apply_to_environment(settings: dict) -> None:
-    """Injecte la clé dans l'environnement du process : le reste du code
-    (Config.groq_api_key) n'a pas besoin de savoir d'où elle vient."""
-    if settings.get("groq_api_key"):
-        os.environ["GROQ_API_KEY"] = settings["groq_api_key"]
+    """Injecte les clés dans l'environnement du process.
+
+    Le reste du code (Config.api_key_for) n'a pas besoin de savoir d'où elles
+    viennent. Une clé vidée dans les réglages est retirée de l'environnement,
+    sinon l'ancienne valeur continuerait de s'appliquer jusqu'au redémarrage.
+    """
+    for provider_name, field in API_KEY_FIELDS.items():
+        env_var = LLM_ENV_KEYS[provider_name]
+        value = settings.get(field) or ""
+        if value:
+            os.environ[env_var] = value
+        else:
+            os.environ.pop(env_var, None)

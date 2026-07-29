@@ -61,9 +61,22 @@ export interface Voice {
   locale: string;
 }
 
+/** Identifiants des fournisseurs d'IA, dans l'ordre de la chaîne de repli. */
+export const LLM_PROVIDERS = ['groq', 'cerebras', 'gemini', 'mistral'] as const;
+export type LlmProvider = (typeof LLM_PROVIDERS)[number];
+
 export interface Settings {
   groq_api_key: string;
+  cerebras_api_key: string;
+  gemini_api_key: string;
+  mistral_api_key: string;
   voice_id: string;
+}
+
+export interface LlmStatus {
+  /** Étiquettes « fournisseur/modèle » réellement utilisables. */
+  configured: string[];
+  error: string | null;
 }
 
 export interface ProgressEvent {

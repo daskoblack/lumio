@@ -103,8 +103,12 @@ export function Home({ onCourseReady }: { onCourseReady: (course: Course) => voi
 }
 
 function friendlyError(message: string): string {
-  if (message.includes('GROQ_API_KEY') || message.includes('Clé API')) {
-    return "Il manque ta clé Groq — va dans Réglages pour la renseigner (c'est gratuit).";
+  if (message.includes('Aucun fournisseur') || message.includes('_API_KEY') || message.includes('Clé API')) {
+    return "Aucune intelligence artificielle n'est configurée — va dans Réglages pour coller un code (c'est gratuit).";
+  }
+  if (message.includes('Tous les fournisseurs')) {
+    return "Toutes tes intelligences artificielles ont épuisé leur réserve du jour. "
+      + 'Ajoute un autre code dans Réglages, ou réessaie demain.';
   }
   return `Un problème est survenu : ${message}`;
 }

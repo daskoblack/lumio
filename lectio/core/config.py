@@ -29,12 +29,49 @@ def _default_config_path() -> Path:
 _DEFAULT_CONFIG_PATH = _default_config_path()
 
 
+# Les clés API ne sont JAMAIS lues depuis un fichier de config : uniquement
+# depuis l'environnement (l'app desktop les y injecte depuis ses réglages).
+LLM_ENV_KEYS = {
+    "groq": "GROQ_API_KEY",
+    "cerebras": "CEREBRAS_API_KEY",
+    "gemini": "GEMINI_API_KEY",
+    "mistral": "MISTRAL_API_KEY",
+}
+
+
+class LLMCandidate(BaseModel):
+    """Un maillon de la chaîne de repli : un fournisseur + un modèle précis."""
+
+    name: str                    # groq | cerebras | gemini | mistral
+    model: str
+    min_interval_s: float = 2.0  # espacement propre au fournisseur (limites RPM ≠)
+
+
+def _default_fallbacks() -> list[LLMCandidate]:
+    """Repli par défaut : du plus capable au plus modeste.
+
+    Chaque maillon est tenté seulement si le précédent est épuisé, et
+    seulement si sa clé API est renseignée. Sans aucune clé de repli,
+    le comportement reste identique à avant (un seul fournisseur).
+    """
+    return [
+        # Même fournisseur, modèle plus léger : consomme bien moins de tokens.
+        LLMCandidate(name="groq", model="llama-3.1-8b-instant"),
+        # Puis d'autres comptes gratuits, avec leurs propres quotas quotidiens.
+        LLMCandidate(name="cerebras", model="gpt-oss-120b"),
+        # Gemini gratuit est limité à ~10 requêtes/min : espacement plus large.
+        LLMCandidate(name="gemini", model="gemini-2.5-flash-lite", min_interval_s=6.5),
+        LLMCandidate(name="mistral", model="mistral-small-latest"),
+    ]
+
+
 class LLMConfig(BaseModel):
     name: str = "groq"
     model: str = "llama-3.3-70b-versatile"
     temperature: float = 0.4
     max_document_chars: int = 24000
     min_interval_s: float = 2.0  # espacement minimal entre appels (évite les 429 Groq)
+    fallbacks: list[LLMCandidate] = Field(default_factory=_default_fallbacks)
 
 
 class TTSConfig(BaseModel):
@@ -105,6 +142,12 @@ class Config(BaseModel):
     @property
     def workspace_path(self) -> Path:
         return Path(self.paths.workspace)
+
+    @staticmethod
+    def api_key_for(provider_name: str) -> str | None:
+        """Clé API d'un fournisseur, depuis l'environnement."""
+        env_var = LLM_ENV_KEYS.get(provider_name.lower())
+        return os.environ.get(env_var) if env_var else None
 
     @staticmethod
     def groq_api_key() -> str | None:

@@ -6,17 +6,25 @@ language: fr
 
 providers:
   llm:
-    # Groq a un plafond de 100 000 tokens/JOUR sur son tier gratuit (peut
-    # etre atteint sur un cours long). Alternative : Cerebras (1 000 000
-    # tokens/jour, 10x plus de marge) - decommenter les 2 lignes ci-dessous
-    # et definir CEREBRAS_API_KEY a la place de GROQ_API_KEY :
-    #   name: cerebras
-    #   model: gpt-oss-120b
+    # Fournisseur principal, puis chaîne de repli automatique : quand un
+    # fournisseur épuise son quota du jour (Groq : 100 000 tokens/jour), la
+    # génération continue sur le maillon suivant au lieu d'échouer.
+    # Un maillon dont la clé API n'est pas renseignée est simplement ignoré.
     name: groq
-    model: llama-3.3-70b-versatile   # modèle Groq par défaut, changeable
+    model: llama-3.3-70b-versatile   # modèle principal (le plus capable)
     temperature: 0.4
     max_document_chars: 24000        # troncature de sécurité pour l'analyse
     min_interval_s: 2.0              # espacement minimal entre appels (évite les 429)
+    fallbacks:
+      - name: groq                   # même compte, modèle plus léger
+        model: llama-3.1-8b-instant
+      - name: cerebras               # 1 000 000 tokens/jour gratuits
+        model: gpt-oss-120b
+      - name: gemini                 # ~10 requêtes/min en gratuit -> espacement plus large
+        model: gemini-2.5-flash-lite
+        min_interval_s: 6.5
+      - name: mistral
+        model: mistral-small-latest
 
   tts:
     # Groq (PlayAI) ne supporte pas le français : edge-tts (gratuit, sans clé,

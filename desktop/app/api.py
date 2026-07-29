@@ -83,12 +83,37 @@ class Api:
     def get_settings(self) -> dict:
         return settings_store.load_settings()
 
-    def save_settings(self, groq_api_key: str | None, voice_id: str | None) -> dict:
-        updated = settings_store.save_settings(groq_api_key=groq_api_key, voice_id=voice_id)
+    def save_settings(self, updates: dict | None = None, voice_id: str | None = None) -> dict:
+        """Enregistre les réglages fournis (clés API et/ou voix).
+
+        `updates` est un dict {champ: valeur} : seuls les champs présents sont
+        modifiés, ce qui permet à l'écran d'accueil de ne changer que la voix.
+        """
+        payload = dict(updates or {})
+        if voice_id is not None:
+            payload["voice_id"] = voice_id
+
+        updated = settings_store.save_settings(payload)
         settings_store.apply_to_environment(updated)
-        if voice_id:
-            self._config.providers.tts.voice = voice_id
+        if updated.get("voice_id"):
+            self._config.providers.tts.voice = updated["voice_id"]
+
+        # Les fournisseurs déjà construits ont capturé les anciennes clés :
+        # on repart d'un orchestrateur neuf pour que les nouvelles s'appliquent
+        # sans avoir à redémarrer l'application.
+        self._orchestrator_instance = Orchestrator(self._config)
         return updated
+
+    def llm_status(self) -> dict:
+        """Fournisseurs d'IA réellement utilisables (pour l'écran Réglages)."""
+        from lectio.core.exceptions import LLMError
+        from lectio.providers.llm.factory import build_llm
+
+        try:
+            chain = build_llm(self._config)
+        except LLMError as exc:
+            return {"configured": [], "error": str(exc)}
+        return {"configured": getattr(chain, "available_labels", []), "error": None}
 
     def list_voices(self) -> list[dict]:
         import edge_tts

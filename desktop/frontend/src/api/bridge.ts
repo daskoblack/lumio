@@ -2,7 +2,7 @@
 // pywebview injecte `window.pywebview` un peu après le chargement de la page :
 // `ready()` attend cet événement avant le premier appel.
 
-import type { ApiError, Course, ProgressEvent, Settings, Voice } from '../types';
+import type { ApiError, Course, LlmStatus, ProgressEvent, Settings, Voice } from '../types';
 
 declare global {
   interface Window {
@@ -19,7 +19,8 @@ type PreviewVoiceResult = { audio: string } | ApiError;
 
 interface PywebviewApi {
   get_settings(): Promise<Settings>;
-  save_settings(groq_api_key: string | null, voice_id: string | null): Promise<Settings>;
+  save_settings(updates: Record<string, string> | null, voice_id: string | null): Promise<Settings>;
+  llm_status(): Promise<LlmStatus>;
   list_voices(): Promise<Voice[]>;
   preview_voice(voice_id: string): Promise<PreviewVoiceResult>;
   pick_pdf_file(): Promise<string | null>;
@@ -54,8 +55,9 @@ async function api(): Promise<PywebviewApi> {
 
 export const bridge = {
   getSettings: async () => (await api()).get_settings(),
-  saveSettings: async (groqApiKey: string | null, voiceId: string | null) =>
-    (await api()).save_settings(groqApiKey, voiceId),
+  saveSettings: async (updates: Record<string, string> | null, voiceId: string | null) =>
+    (await api()).save_settings(updates, voiceId),
+  llmStatus: async () => (await api()).llm_status(),
   listVoices: async () => (await api()).list_voices(),
   previewVoice: async (voiceId: string) => (await api()).preview_voice(voiceId),
   pickPdfFile: async () => (await api()).pick_pdf_file(),
