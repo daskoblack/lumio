@@ -65,6 +65,9 @@ class Script(BaseModel):
     word_count_target: int | None = None   # None = génération libre (pas de cible)
     word_count_actual: int = 0
     generation_pass: int = 0                # 0=non généré, 1=1re passe, 2=corrigée
+    # True si l'IA n'a pas produit de texte prononçable et qu'un texte de
+    # secours (bâti sur le contenu de la page) a dû être utilisé.
+    fallback_used: bool = False
     audio_path: str | None = None           # rempli en phase 3
     audio_duration_s: float | None = None   # rempli en phase 3
 

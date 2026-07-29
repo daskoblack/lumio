@@ -1,0 +1,54 @@
+"""Contrôles sur le texte destiné à être prononcé.
+
+Un texte sans aucune lettre ni chiffre (« ... », « --- », « " ") fait échouer
+la synthèse vocale avec un message obscur (« No audio was received »), ou pire
+produit un fichier audio vide qui casse la mesure de durée bien plus loin dans
+le pipeline. On vérifie donc en amont, là où le diagnostic est encore clair.
+"""
+
+from __future__ import annotations
+
+import re
+
+
+def is_pronounceable(text: str) -> bool:
+    """Vrai si le texte contient au moins une lettre ou un chiffre.
+
+    Critère volontairement strict : de la ponctuation seule n'est pas
+    synthétisable, alors qu'un texte contenant ne serait-ce qu'un mot l'est.
+    """
+    return any(char.isalnum() for char in text)
+
+
+# Un modèle bavard préfixe volontiers sa réponse (« Voici la narration : »).
+# Prononcé à voix haute, ça sonne faux. On ne retire qu'une PREMIÈRE ligne
+# courte, terminée par « : » et clairement méta — jamais une vraie phrase.
+_META_KEYWORDS = ("narration", "voici", "texte", "script", "réponse", "reponse")
+_MAX_META_LINE_CHARS = 90
+
+_CODE_FENCE_RE = re.compile(r"^\s*```[a-zA-Z]*\s*\n?|\n?\s*```\s*$")
+_EMPHASIS_RE = re.compile(r"(\*{1,3}|_{2,3})(?=\S)(.+?)(?<=\S)\1", re.DOTALL)
+
+
+def clean_narration(text: str) -> str:
+    """Retire les scories de formatage que le TTS lirait à voix haute.
+
+    Sans effet sur une narration déjà propre : chaque nettoyage est ciblé et
+    ne s'applique que lorsqu'il est sans ambiguïté.
+    """
+    cleaned = _CODE_FENCE_RE.sub("", text).strip()
+    # Gras/italique Markdown : on garde le mot, on jette les astérisques.
+    cleaned = _EMPHASIS_RE.sub(r"\2", cleaned)
+
+    lines = cleaned.split("\n", 1)
+    if len(lines) == 2:
+        first = lines[0].strip()
+        lowered = first.lower()
+        if (
+            first.endswith(":")
+            and len(first) <= _MAX_META_LINE_CHARS
+            and any(keyword in lowered for keyword in _META_KEYWORDS)
+        ):
+            cleaned = lines[1].strip()
+
+    return cleaned.strip()

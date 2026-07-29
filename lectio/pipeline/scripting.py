@@ -22,8 +22,11 @@ Principe de durée (inchangé) :
 from __future__ import annotations
 
 from ..core.models import Script, Section, SectionKind, Slide
+from ..core.textutil import clean_narration, is_pronounceable
 from ..core.timing import count_words, deviation
 from ..providers.llm.base import LLMProvider
+
+_FALLBACK_MAX_CHARS = 600  # de quoi une narration de secours plausible, pas plus
 
 _SYSTEM = """Tu es un professeur qui donne un cours à l'oral, face caméra, page \
 par page d'un support. Tu produis une NARRATION ORIGINALE, naturelle et \
@@ -128,6 +131,18 @@ def _build_correction_prompt(previous: str, actual_words: int, target_words: int
     )
 
 
+def _fallback_narration(section: Section, slide: Slide) -> str:
+    """Narration de secours quand l'IA ne rend rien de prononçable.
+
+    Bâtie sur le contenu réel de la page : mieux vaut une explication sobre
+    qu'une vidéo qui échoue entièrement à cause d'une seule page.
+    """
+    for candidate in (slide.source_text().strip(), slide.title.strip(), section.title.strip()):
+        if is_pronounceable(candidate):
+            return candidate[:_FALLBACK_MAX_CHARS]
+    return "Passons à la page suivante."
+
+
 async def generate_slide_script(
     llm: LLMProvider,
     section: Section,
@@ -141,27 +156,41 @@ async def generate_slide_script(
     max_passes: int,
 ) -> Script:
     """Génère (et corrige au besoin) la narration d'UNE slide, avec contexte."""
-    text = await llm.complete(
-        system=_SYSTEM,
-        user=_build_user_prompt(
-            section, slide, position, total, previous_text, next_slide, target_words, tolerance
-        ),
-        temperature=0.5,
+    user_prompt = _build_user_prompt(
+        section, slide, position, total, previous_text, next_slide, target_words, tolerance
     )
-    text = text.strip()
+    text = clean_narration(await llm.complete(system=_SYSTEM, user=user_prompt, temperature=0.5))
+
+    # Une réponse sans lettre ni chiffre (« ... », « --- ») ferait échouer la
+    # synthèse vocale plus loin, avec un message incompréhensible : on la
+    # rattrape ici, où l'on peut encore redemander à l'IA.
+    fallback_used = False
+    if not is_pronounceable(text):
+        retry = clean_narration(
+            await llm.complete(system=_SYSTEM, user=user_prompt, temperature=0.7)
+        )
+        if is_pronounceable(retry):
+            text = retry
+        else:
+            text = _fallback_narration(section, slide)
+            fallback_used = True
+
     actual = count_words(text)
     generation_pass = 1
 
     if target_words is not None and max_passes >= 2:
         if deviation(actual, target_words) > tolerance:
-            corrected = await llm.complete(
+            corrected = clean_narration(await llm.complete(
                 system=_SYSTEM,
                 user=_build_correction_prompt(text, actual, target_words, tolerance),
                 temperature=0.5,
-            )
-            text = corrected.strip()
-            actual = count_words(text)
-            generation_pass = 2
+            ))
+            # Une correction qui rendrait le texte imprononçable est ignorée :
+            # mieux vaut garder une durée imparfaite qu'un audio impossible.
+            if is_pronounceable(corrected):
+                text = corrected
+                actual = count_words(text)
+                generation_pass = 2
 
     return Script(
         slide_id=slide.id,
@@ -169,6 +198,7 @@ async def generate_slide_script(
         word_count_target=target_words,
         word_count_actual=actual,
         generation_pass=generation_pass,
+        fallback_used=fallback_used,
     )
 
 
