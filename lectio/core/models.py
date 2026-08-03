@@ -123,6 +123,10 @@ class Course(BaseModel):
     voice_profile_id: str = "default"
     status: CourseStatus = CourseStatus.CREATED
     truncated: bool = False  # True si le texte a été tronqué pour l'analyse
+    # Pages produites en mode dégradé (IA indisponible, voix en échec) : la
+    # vidéo est quand même livrée, mais on dit lesquelles ont souffert.
+    degraded_pages: list[str] = Field(default_factory=list)
+    subtitles_enabled: bool = False  # désactivés par défaut, activables au planning
 
     slides: list[Slide] = Field(default_factory=list)
     sections: list[Section] = Field(default_factory=list)

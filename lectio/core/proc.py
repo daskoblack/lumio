@@ -3,10 +3,17 @@
 from __future__ import annotations
 
 import asyncio
+import subprocess
 import sys
 from pathlib import Path
 
 from .exceptions import RenderError
+
+# L'app packagée n'a pas de console (console=False) : chaque sous-processus
+# Windows en ouvrirait donc une, visible et consommant de la mémoire. Sur un
+# cours de 20 pages, ffprobe est appelé une fois par page -> une vingtaine de
+# fenêtres noires devant l'utilisateur. Ce drapeau les supprime.
+_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0) if sys.platform == "win32" else 0
 
 
 def resolve_binary(name: str) -> str:
@@ -30,6 +37,7 @@ async def run(cmd: list[str]) -> str:
         *cmd,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
+        creationflags=_NO_WINDOW,
     )
     stdout, stderr = await proc.communicate()
     if proc.returncode != 0:

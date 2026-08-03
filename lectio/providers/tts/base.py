@@ -39,6 +39,9 @@ class TTSResult(BaseModel):
     audio_path: str
     duration_s: float
     word_count: int
+    # Message à remonter à l'utilisateur sans faire échouer la synthèse
+    # (ex. voix demandée absente du catalogue, remplacée automatiquement).
+    warning: str | None = None
 
 
 class TTSProvider(ABC):

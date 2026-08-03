@@ -7,33 +7,13 @@ Pas de script monolithique : chaque étape est indépendante et rejouable.
 
 from __future__ import annotations
 
-import asyncio
+import shutil
 from pathlib import Path
 from typing import Callable
 
-# Signature : on_progress(label, terminés, total) — appelé au fil de l'avancement.
-# None par défaut : le CLI n'en a pas besoin, seule l'app desktop s'en sert.
-ProgressCallback = Callable[[str, int, int], None]
-
-
-class _ProgressTracker:
-    """Compteur d'avancement partagé entre coroutines (sûr : asyncio est mono-thread,
-    les incréments entre deux `await` ne peuvent jamais se chevaucher)."""
-
-    def __init__(self, stage: str, total: int, on_progress: ProgressCallback | None) -> None:
-        self._total = total
-        self._done = 0
-        self._on_progress = on_progress
-        if on_progress:
-            on_progress(f"{stage}…", 0, max(total, 1))
-
-    def tick(self, label: str) -> None:
-        self._done += 1
-        if self._on_progress:
-            self._on_progress(label, self._done, max(self._total, 1))
-
+from ..core import proc
 from ..core.config import Config
-from ..core.exceptions import InvalidStateError
+from ..core.exceptions import InvalidStateError, LectioError
 from ..core.models import Course, CourseStatus, Section
 from ..core.timing import deviation, duration_to_words, words_to_duration
 from ..pipeline import analysis, extraction, scripting, sectioning, slides as slides_pipeline
@@ -49,6 +29,30 @@ from ..providers.video.base import VideoEngine
 from ..providers.video.factory import build_video_engine
 from .store import JobStore
 from .voice_store import VoiceProfileStore
+
+# Signature : on_progress(label, terminés, total) — appelé au fil de l'avancement.
+# None par défaut : le CLI n'en a pas besoin, seule l'app desktop s'en sert.
+ProgressCallback = Callable[[str, int, int], None]
+
+# Durée du silence inséré quand la voix échoue sur une page : assez pour que
+# la page reste visible, assez court pour ne pas gêner.
+_SILENT_PLACEHOLDER_S = 2.0
+
+
+class _ProgressTracker:
+    """Compteur d'avancement d'une étape."""
+
+    def __init__(self, stage: str, total: int, on_progress: ProgressCallback | None) -> None:
+        self._total = total
+        self._done = 0
+        self._on_progress = on_progress
+        if on_progress:
+            on_progress(f"{stage}…", 0, max(total, 1))
+
+    def tick(self, label: str) -> None:
+        self._done += 1
+        if self._on_progress:
+            self._on_progress(label, self._done, max(self._total, 1))
 
 
 class Orchestrator:
@@ -164,59 +168,87 @@ class Orchestrator:
         tol = self._config.scripting.word_budget_tolerance
         max_passes = self._config.scripting.max_generation_passes
 
-        total = sum(len(course.section_slides(s)) for s in course.sections)
-        progress = _ProgressTracker("Écriture du script", total, on_progress)
+        plan = self._build_narration_plan(course, rate)
+        progress = _ProgressTracker("Écriture du script", len(plan), on_progress)
 
-        # Sections en concurrence entre elles ; SLIDES d'une même section en
-        # séquence (chacune a besoin du texte déjà généré pour la précédente).
-        await asyncio.gather(
-            *(
-                self._script_section(course, section, rate, tol, max_passes, progress)
-                for section in course.sections
+        # SÉQUENTIEL sur tout le cours : chaque page doit connaître ce qui a
+        # réellement été dit avant elle. Générer les sections en parallèle
+        # privait chaque début de section de tout contexte -> le professeur
+        # réintroduisait le sujet à chaque partie (répétitions signalées).
+        # Aucun coût de vitesse : le RateLimiter sérialise déjà les appels.
+        previous_text: str | None = None
+        summaries: list[str] = []
+        failures: list[str] = []
+
+        for ctx in plan:
+            ctx.previous_text = previous_text
+            ctx.previous_summaries = list(summaries[-scripting._MAX_SUMMARIES:])
+            try:
+                ctx.slide.script = await scripting.generate_slide_script(
+                    self.llm, ctx, tol, max_passes
+                )
+            except LectioError as exc:
+                # Une page qui échoue ne doit pas emporter tout le cours :
+                # narration de secours bâtie sur la page, et on continue.
+                ctx.slide.script = scripting.emergency_script(ctx)
+                failures.append(f"page {ctx.slide.source_page} ({exc})")
+
+            ctx.slide.estimated_duration_s = words_to_duration(
+                ctx.slide.script.word_count_actual, rate
             )
-        )
+            previous_text = ctx.slide.script.text
+            summaries.append(scripting.summarize_for_context(ctx.slide.script.text))
+            progress.tick(f"Page {ctx.slide.source_page} : {ctx.section.title}")
+            self._store.save(course)  # reprise possible si l'app s'arrête en cours
 
+        for section in course.sections:
+            slides = course.section_slides(section)
+            section.estimated_duration_s = sum(s.estimated_duration_s for s in slides)
+            if section.target_duration_s:
+                section.duration_deviation = deviation(
+                    section.estimated_duration_s, section.target_duration_s
+                )
+
+        course.degraded_pages = failures
         course.status = CourseStatus.SCRIPTED
         self._store.save(course)
         return course
 
-    async def _script_section(
-        self,
-        course: Course,
-        section: Section,
-        rate: float,
-        tol: float,
-        max_passes: int,
-        progress: "_ProgressTracker",
-    ) -> None:
-        slides = course.section_slides(section)
-        if not slides:
-            return
+    def _build_narration_plan(
+        self, course: Course, rate: float
+    ) -> list[scripting.NarrationContext]:
+        """Ordonne toutes les pages du cours et prépare leur contexte fixe."""
+        ordered: list[tuple[Section, Slide, bool]] = []
+        for section in sorted(course.sections, key=lambda s: s.index):
+            slides = course.section_slides(section)
+            for position_in_section, slide in enumerate(slides):
+                ordered.append((section, slide, position_in_section == 0))
 
-        target_words_by_slide: list[int | None] = [None] * len(slides)
-        if section.target_duration_s is not None:
-            total_target_words = duration_to_words(section.target_duration_s, rate)
-            target_words_by_slide = scripting.distribute_target_words(
-                section, slides, total_target_words
+        # Budget de mots par page, calculé section par section.
+        targets: dict[str, int | None] = {}
+        for section in course.sections:
+            slides = course.section_slides(section)
+            if section.target_duration_s is None:
+                targets.update({s.id: None for s in slides})
+                continue
+            shares = scripting.distribute_target_words(
+                section, slides, duration_to_words(section.target_duration_s, rate)
             )
+            targets.update({s.id: share for s, share in zip(slides, shares)})
 
-        previous_text: str | None = None
-        for i, slide in enumerate(slides):
-            next_slide = slides[i + 1] if i + 1 < len(slides) else None
-            slide.script = await scripting.generate_slide_script(
-                self.llm, section, slide, i + 1, len(slides),
-                previous_text, next_slide,
-                target_words_by_slide[i], tol, max_passes,
+        total = len(ordered)
+        return [
+            scripting.NarrationContext(
+                section=section,
+                slide=slide,
+                position=index + 1,
+                total=total,
+                starts_new_section=starts_new and index > 0,
+                next_slide=ordered[index + 1][1] if index + 1 < total else None,
+                target_words=targets.get(slide.id),
             )
-            slide.estimated_duration_s = words_to_duration(slide.script.word_count_actual, rate)
-            previous_text = slide.script.text
-            progress.tick(f"Page {slide.source_page} : {section.title}")
-
-        section.estimated_duration_s = sum(s.estimated_duration_s for s in slides)
-        if section.target_duration_s:
-            section.duration_deviation = deviation(
-                section.estimated_duration_s, section.target_duration_s
-            )
+            for index, (section, slide, starts_new) in enumerate(ordered)
+        ]
 
     # --- Étape 3 : synthèse vocale par slide + calibration + correction bornée (-> SYNTHESIZED) ---
     async def run_synthesis(self, job_id: str, on_progress: ProgressCallback | None = None) -> Course:
@@ -238,54 +270,65 @@ class Orchestrator:
         max_passes = self._config.scripting.max_generation_passes
         threshold = self._config.synthesis.deviation_threshold
 
-        total = sum(len(course.section_slides(s)) for s in course.sections)
-        progress = _ProgressTracker("Enregistrement de la voix", total, on_progress)
+        plan = self._build_narration_plan(course, self._config.voice.default_speech_rate_wps)
+        progress = _ProgressTracker("Enregistrement de la voix", len(plan), on_progress)
 
-        await asyncio.gather(
-            *(
-                self._synthesize_section(
-                    course, section, voice, audio_dir, tol, threshold, max_passes, progress
+        failures: list[str] = []
+        warnings: list[str] = []
+        previous_text: str | None = None
+        for ctx in plan:
+            ctx.previous_text = previous_text
+            try:
+                await synthesis.synthesize_slide(
+                    self.llm, self.tts, ctx, voice, audio_dir, tol, threshold, max_passes
                 )
-                for section in course.sections
-            )
-        )
+            except LectioError as exc:
+                # Une page muette ne doit pas emporter la vidéo entière : on
+                # met un court silence à la place et on poursuit.
+                await self._silent_placeholder(ctx, audio_dir)
+                failures.append(f"page {ctx.slide.source_page} ({exc})")
 
+            if ctx.warning and ctx.warning not in warnings:
+                warnings.append(ctx.warning)
+            previous_text = ctx.slide.script.text if ctx.slide.script else None
+            progress.tick(f"Page {ctx.slide.source_page} : {ctx.section.title}")
+            self._store.save(course)  # reprise possible si l'app s'arrête en cours
+
+        for section in course.sections:
+            slides = course.section_slides(section)
+            section.actual_duration_s = sum(s.actual_duration_s or 0.0 for s in slides)
+            if section.target_duration_s:
+                section.duration_deviation = deviation(
+                    section.actual_duration_s, section.target_duration_s
+                )
+
+        course.degraded_pages = [*course.degraded_pages, *failures, *warnings]
         self._voice_store.save(voice)
         course.status = CourseStatus.SYNTHESIZED
         self._store.save(course)
         return course
 
-    async def _synthesize_section(
-        self,
-        course: Course,
-        section: Section,
-        voice: VoiceProfile,
-        audio_dir: Path,
-        tol: float,
-        threshold: float,
-        max_passes: int,
-        progress: "_ProgressTracker",
+    async def _silent_placeholder(
+        self, ctx: "scripting.NarrationContext", audio_dir: Path
     ) -> None:
-        slides = course.section_slides(section)
-        if not slides:
-            return
+        """Court silence à la place d'une page dont la voix a échoué.
 
-        async def _one(i: int, slide) -> None:
-            await synthesis.synthesize_slide(
-                self.llm, self.tts, section, slide, i + 1, len(slides),
-                slides[i - 1].script.text if i > 0 else None,
-                slides[i + 1] if i + 1 < len(slides) else None,
-                voice, audio_dir, tol, threshold, max_passes,
-            )
-            progress.tick(f"Page {slide.source_page} : {section.title}")
-
-        await asyncio.gather(*(_one(i, slide) for i, slide in enumerate(slides)))
-
-        section.actual_duration_s = sum(s.actual_duration_s or 0.0 for s in slides)
-        if section.target_duration_s:
-            section.duration_deviation = deviation(
-                section.actual_duration_s, section.target_duration_s
-            )
+        Sans cela, la page n'aurait aucune durée réelle et la construction de
+        la timeline refuserait de produire la vidéo — tout le travail déjà
+        fait serait perdu à cause d'une seule page.
+        """
+        slide = ctx.slide
+        out_path = audio_dir / f"slide_{slide.index:03d}.mp3"
+        await proc.run([
+            proc.resolve_binary("ffmpeg"), "-y",
+            "-f", "lavfi", "-i", "anullsrc=r=24000:cl=mono",
+            "-t", f"{_SILENT_PLACEHOLDER_S}",
+            str(out_path),
+        ])
+        if slide.script is not None:
+            slide.script.audio_path = str(out_path)
+            slide.script.audio_duration_s = _SILENT_PLACEHOLDER_S
+        slide.actual_duration_s = _SILENT_PLACEHOLDER_S
 
     # --- Étape 4 : rendu des slides + timeline + montage FFmpeg (-> RENDERED) ---
     async def run_rendering(self, job_id: str, on_progress: ProgressCallback | None = None) -> Course:
@@ -332,17 +375,45 @@ class Orchestrator:
         srt_path = output_dir / "subtitles.srt"
         final_path = output_dir / "video_final.mp4"
 
+        # Sous-titres désactivés par défaut : la vidéo finale est alors
+        # simplement la vidéo montée, sans passe de transcription.
+        if not course.subtitles_enabled:
+            shutil.copyfile(video_path, final_path)
+            if on_progress:
+                on_progress("Terminé", 1, 1)
+            course.status = CourseStatus.DONE
+            self._store.save(course)
+            return course
+
         if on_progress:
             on_progress("Transcription des sous-titres…", 0, 2)
-        await subtitles_pipeline.generate_srt(
-            self.stt, course, self._config.subtitles, srt_path
-        )
-        if on_progress:
-            on_progress("Incrustation dans la vidéo…", 1, 2)
-        await subtitles_pipeline.mux_subtitles(str(video_path), str(srt_path), str(final_path))
+        try:
+            await subtitles_pipeline.generate_srt(
+                self.stt, course, self._config.subtitles, srt_path
+            )
+            if on_progress:
+                on_progress("Incrustation dans la vidéo…", 1, 2)
+            await subtitles_pipeline.mux_subtitles(
+                str(video_path), str(srt_path), str(final_path)
+            )
+        except LectioError as exc:
+            # Les sous-titres sont un supplément : leur échec ne doit pas
+            # priver l'utilisateur de la vidéo qu'il vient d'attendre.
+            shutil.copyfile(video_path, final_path)
+            course.degraded_pages = [
+                *course.degraded_pages,
+                f"sous-titres non générés ({exc})",
+            ]
         if on_progress:
             on_progress("Terminé", 2, 2)
 
         course.status = CourseStatus.DONE
+        self._store.save(course)
+        return course
+
+    def set_subtitles_enabled(self, job_id: str, enabled: bool) -> Course:
+        """Active ou non les sous-titres pour ce cours (décidé au planning)."""
+        course = self._store.load(job_id)
+        course.subtitles_enabled = enabled
         self._store.save(course)
         return course

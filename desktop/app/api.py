@@ -182,6 +182,15 @@ class Api:
             return _error_dict(exc)
         return _course_dict(course)
 
+    def set_subtitles(self, job_id: str, enabled: bool) -> dict:
+        orch = self._orchestrator()
+        try:
+            with self._lock:
+                course = orch.set_subtitles_enabled(job_id, enabled)
+        except LectioError as exc:
+            return _error_dict(exc)
+        return _course_dict(course)
+
     # --- Étapes individuelles (utiles pour ré-essayer une étape précise) ---
     def run_script(self, job_id: str) -> dict:
         orch = self._orchestrator()

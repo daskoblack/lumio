@@ -45,7 +45,15 @@
   justify-content: space-between;
   gap: 20px;
 }
+.generate-left { display: flex; flex-direction: column; gap: 10px; }
 .generate-bar .total { font-size: 15px; color: var(--ink-dim); }
+
+.subtitle-toggle {
+  display: flex; align-items: center; gap: 9px;
+  font-size: 14px; color: var(--ink-dim); cursor: pointer;
+}
+.subtitle-toggle input { width: 17px; height: 17px; accent-color: var(--glow); cursor: pointer; }
+.subtitle-toggle em { font-style: normal; color: var(--ink-faint); font-size: 13px; }
 .generate-bar .total strong {
   font-family: var(--font-display);
   color: var(--ink);

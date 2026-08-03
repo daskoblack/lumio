@@ -12,6 +12,7 @@ export interface Script {
   word_count_target: number | null;
   word_count_actual: number;
   generation_pass: number;
+  fallback_used: boolean;
   audio_path: string | null;
   audio_duration_s: number | null;
 }
@@ -51,6 +52,8 @@ export interface Course {
   voice_profile_id: string;
   status: CourseStatus;
   truncated: boolean;
+  degraded_pages: string[];
+  subtitles_enabled: boolean;
   slides: Slide[];
   sections: Section[];
 }
