@@ -1,5 +1,6 @@
-"""Tests du budget de mots, de la boucle de correction, de la répartition du
-budget entre pages et du contexte anti-répétition (LLM simulé)."""
+"""Tests du budget de mots, de la correction ASYMÉTRIQUE (jamais d'invention),
+de la répartition du budget entre pages et du contexte anti-répétition (LLM
+simulé)."""
 
 import pytest
 
@@ -30,21 +31,18 @@ def _section(titre="T"):
 
 
 def _slide(text="source"):
-    return Slide(
-        index=0, source_page=1, title="P1",
-        content_blocks=[ContentBlock(kind="text", text=text)],
-    )
+    return Slide(index=0, source_page=1, title="P1", content_blocks=[ContentBlock(kind="text", text=text)])
 
 
 def _ctx(**kwargs) -> NarrationContext:
-    defaults = dict(section=_section(), slide=_slide(), position=1, total=1)
+    defaults = dict(section=_section(), slide=_slide(), position=1, total=1, tolerance=0.10)
     return NarrationContext(**{**defaults, **kwargs})
 
 
 @pytest.mark.asyncio
 async def test_no_target_generates_once_without_budget():
     llm = FakeLLM([50])
-    script = await generate_slide_script(llm, _ctx(), tolerance=0.10, max_passes=2)
+    script = await generate_slide_script(llm, _ctx(), max_passes=2)
     assert script.word_count_target is None
     assert script.generation_pass == 1
     assert llm.calls == 1
@@ -54,25 +52,36 @@ async def test_no_target_generates_once_without_budget():
 async def test_target_within_tolerance_no_correction():
     # cible 120 mots ; on génère 118 -> dans ±10%, pas de correction
     llm = FakeLLM([118])
-    script = await generate_slide_script(llm, _ctx(target_words=120), tolerance=0.10, max_passes=2)
+    script = await generate_slide_script(llm, _ctx(target_words=120), max_passes=2)
     assert script.word_count_target == 120
     assert script.generation_pass == 1
     assert llm.calls == 1
 
 
 @pytest.mark.asyncio
-async def test_target_out_of_tolerance_triggers_single_correction():
-    llm = FakeLLM([60, 122])
-    script = await generate_slide_script(llm, _ctx(target_words=120), tolerance=0.10, max_passes=2)
+async def test_depassement_declenche_une_correction():
+    llm = FakeLLM([200, 122])  # 200 mots pour une cible de 120 : net dépassement
+    script = await generate_slide_script(llm, _ctx(target_words=120), max_passes=2)
     assert script.generation_pass == 2
     assert script.word_count_actual == 122
     assert llm.calls == 2
 
 
 @pytest.mark.asyncio
+async def test_manque_de_mots_n_est_JAMAIS_corrige():
+    """Le cœur du correctif anti-invention : un texte trop COURT est accepté
+    tel quel, jamais renvoyé au modèle pour être "complété"."""
+    llm = FakeLLM([40])  # bien en dessous de la cible de 120
+    script = await generate_slide_script(llm, _ctx(target_words=120), max_passes=2)
+    assert script.generation_pass == 1
+    assert script.word_count_actual == 40
+    assert llm.calls == 1  # aucun second appel : pas de tentative de "compléter"
+
+
+@pytest.mark.asyncio
 async def test_correction_is_bounded_to_one_pass():
-    llm = FakeLLM([60, 70])
-    script = await generate_slide_script(llm, _ctx(target_words=120), tolerance=0.10, max_passes=2)
+    llm = FakeLLM([200, 190])  # la correction dépasse encore : acceptée telle quelle
+    script = await generate_slide_script(llm, _ctx(target_words=120), max_passes=2)
     assert script.generation_pass == 2
     assert llm.calls == 2  # jamais 3
 
@@ -96,7 +105,7 @@ async def test_previous_and_next_context_passed_to_prompt():
             previous_text="Nous avons vu l'introduction",
             next_slide=_slide("contenu de la page suivante"),
         ),
-        tolerance=0.10, max_passes=2,
+        max_passes=2,
     )
     assert "Nous avons vu l'introduction" in llm.prompt
     assert "contenu de la page suivante" in llm.prompt
@@ -107,7 +116,7 @@ async def test_previous_and_next_context_passed_to_prompt():
 @pytest.mark.asyncio
 async def test_seule_la_toute_premiere_page_introduit_le_cours():
     llm = _CapturingLLM()
-    await generate_slide_script(llm, _ctx(position=1, total=5), tolerance=0.10, max_passes=2)
+    await generate_slide_script(llm, _ctx(position=1, total=5), max_passes=2)
     assert "TOUTE PREMIÈRE page" in llm.prompt
 
 
@@ -118,7 +127,7 @@ async def test_une_nouvelle_section_n_introduit_pas_le_cours():
     await generate_slide_script(
         llm,
         _ctx(position=4, total=9, starts_new_section=True, previous_text="déjà dit"),
-        tolerance=0.10, max_passes=2,
+        max_passes=2,
     )
     assert "TOUTE PREMIÈRE page" not in llm.prompt
     assert "SANS réintroduire" in llm.prompt
@@ -134,7 +143,7 @@ async def test_les_pages_deja_traitees_sont_rappelees_au_modele():
             previous_text="texte de la page 2",
             previous_summaries=["résumé page 1", "résumé page 2"],
         ),
-        tolerance=0.10, max_passes=2,
+        max_passes=2,
     )
     assert "NE REVIENS PAS dessus" in llm.prompt
     assert "résumé page 1" in llm.prompt

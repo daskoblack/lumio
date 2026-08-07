@@ -96,7 +96,11 @@ class VoiceConfig(BaseModel):
 
 
 class ScriptingConfig(BaseModel):
-    word_budget_tolerance: float = 0.10
+    word_budget_tolerance: float = 0.10       # cible EXPLICITE (l'utilisateur a choisi une durée)
+    # Cible AUTO (estimée à l'analyse, jamais choisie par l'utilisateur) : sert
+    # de PLAFOND pour empêcher une page de s'emballer, pas d'un ordre précis à
+    # atteindre au mot près -> tolérance bien plus large.
+    auto_overshoot_tolerance: float = 0.30
     max_generation_passes: int = 2
 
 

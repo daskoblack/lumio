@@ -30,6 +30,28 @@ _CODE_FENCE_RE = re.compile(r"^\s*```[a-zA-Z]*\s*\n?|\n?\s*```\s*$")
 _EMPHASIS_RE = re.compile(r"(\*{1,3}|_{2,3})(?=\S)(.+?)(?<=\S)\1", re.DOTALL)
 
 
+# Motifs qui trahissent une rupture de personnage plutôt qu'une vraie
+# narration de cours : un gabarit non rempli (« [Votre Nom] »), ou le modèle
+# qui parle de lui-même comme une IA au lieu du professeur qu'il est censé
+# incarner. Repéré en usage réel : un modèle de repli, poussé à combler un
+# écart de mots, retombe parfois sur un patron générique de lettre-type.
+# Volontairement restrictif : ne doit jamais rejeter une vraie phrase de cours.
+_PLACEHOLDER_RE = re.compile(r"\[[^\[\]]{2,40}\]")
+_AI_SELF_REFERENCE_RE = re.compile(
+    r"je m.appelle|en tant qu.(assistant|ia\b|intelligence artificielle)|"
+    r"je suis (un|une) (assistant|intelligence artificielle|mod[eè]le de langage)|"
+    r"\bopenai\b|\bchatgpt\b|mod[eè]le de langage",
+    re.IGNORECASE,
+)
+
+
+def has_suspicious_pattern(text: str) -> bool:
+    """Vrai si le texte ressemble à une rupture de personnage (gabarit non
+    rempli, ou le modèle qui se présente comme une IA) plutôt qu'à une
+    narration de cours légitime."""
+    return bool(_PLACEHOLDER_RE.search(text)) or bool(_AI_SELF_REFERENCE_RE.search(text))
+
+
 def clean_narration(text: str) -> str:
     """Retire les scories de formatage que le TTS lirait à voix haute.
 

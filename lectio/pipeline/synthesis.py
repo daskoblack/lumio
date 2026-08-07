@@ -16,7 +16,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from ..core.timing import deviation
 from ..providers.llm.base import LLMProvider
 from ..providers.tts.base import TTSProvider, VoiceProfile
 from . import scripting
@@ -29,7 +28,6 @@ async def synthesize_slide(
     ctx: NarrationContext,
     voice: VoiceProfile,
     out_dir: Path,
-    tolerance: float,
     deviation_threshold: float,
     max_passes: int,
 ) -> None:
@@ -51,12 +49,16 @@ async def synthesize_slide(
         return  # mode auto : pas de contrainte, la durée réelle fait foi telle quelle
 
     # Cible de durée équivalente pour CETTE page (dérivée de son budget de mots).
+    # Asymétrique, comme la correction de texte : on ne régénère QUE si l'audio
+    # DÉPASSE la cible. Une page plus courte que prévu reste fidèle au contenu
+    # réel ; redemander du texte pour la "compléter" est ce qui poussait le
+    # modèle à inventer du contenu hors sujet.
     slide_target_s = target_words / voice.speech_rate_wps
-    if deviation(result.duration_s, slide_target_s) <= deviation_threshold:
+    if result.duration_s <= slide_target_s * (1 + deviation_threshold):
         return
 
     # Correction UNIQUE : régénère le texte de cette page avec le débit calibré.
-    slide.script = await scripting.generate_slide_script(llm, ctx, tolerance, max_passes)
+    slide.script = await scripting.generate_slide_script(llm, ctx, max_passes)
 
     result2 = await tts.synthesize(slide.script.text, voice, out_path)
     slide.script.audio_path = result2.audio_path
@@ -64,12 +66,12 @@ async def synthesize_slide(
     slide.actual_duration_s = result2.duration_s
     voice.recalibrate(result2.word_count, result2.duration_s)
 
-    dev2 = deviation(result2.duration_s, slide_target_s)
-    if dev2 > deviation_threshold:
+    if result2.duration_s > slide_target_s * (1 + deviation_threshold):
+        residual = (result2.duration_s - slide_target_s) / slide_target_s
         section = ctx.section
         section.synthesis_note = (
             f"{section.synthesis_note + ' ' if section.synthesis_note else ''}"
-            f"Écart résiduel de {dev2:.0%} après correction sur la page "
+            f"Dépassement résiduel de {residual:.0%} après correction sur la page "
             f"{slide.source_page} (cible {slide_target_s:.0f}s, "
             f"réel {result2.duration_s:.0f}s)."
         )

@@ -24,8 +24,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from ..core.models import Script, Section, SectionKind, Slide
-from ..core.textutil import clean_narration, is_pronounceable
-from ..core.timing import count_words, deviation
+from ..core.textutil import clean_narration, has_suspicious_pattern, is_pronounceable
+from ..core.timing import count_words
 from ..providers.llm.base import LLMProvider
 
 _FALLBACK_MAX_CHARS = 600   # de quoi une narration de secours plausible, pas plus
@@ -51,6 +51,9 @@ class NarrationContext:
     previous_summaries: list[str] = field(default_factory=list)
     next_slide: Slide | None = None
     target_words: int | None = None
+    # Tolérance de dépassement avant correction. Plus large pour une cible AUTO
+    # (simple plafond estimé) que pour une cible EXPLICITE (choisie par l'utilisateur).
+    tolerance: float = 0.10
     # Rempli par la synthèse : avertissement non bloquant (voix remplacée…).
     warning: str | None = None
 
@@ -151,25 +154,29 @@ def _build_user_prompt(ctx: NarrationContext, tolerance: float) -> str:
     )
 
 
-def _build_correction_prompt(
-    previous: str, actual_words: int, target_words: int, tolerance: float
-) -> str:
-    direction = "raccourcir" if actual_words > target_words else "allonger"
-    lever = (
-        "retire des détails ou un exemple"
-        if actual_words > target_words
-        else "ajoute un exemple ou développe une explication"
-    )
-    low = round(target_words * (1 - tolerance))
-    high = round(target_words * (1 + tolerance))
+def _build_trim_prompt(previous: str, actual_words: int, target_words: int) -> str:
+    """Demande de RACCOURCIR uniquement.
+
+    Jamais l'inverse : demander au modèle d'« ajouter un exemple » ou de
+    « développer » pour atteindre une cible produisait des inventions hors
+    sujet (le modèle comble le vide avec du contenu non sourcé, jusqu'à des
+    ruptures de personnage). Un texte plus court que prévu reste fidèle au
+    contenu réel : il est accepté tel quel plutôt que gonflé artificiellement.
+    """
     return (
-        f"La narration suivante fait {actual_words} mots, mais la cible est "
-        f"{target_words} mots (fourchette {low}-{high}). Réécris-la pour "
-        f"{direction} : {lever}. Garde le même sujet, le même ton, et les mêmes "
-        f"transitions d'enchaînement avec ce qui précède/suit.\n\n"
+        f"La narration suivante fait {actual_words} mots, largement au-dessus "
+        f"de la cible de {target_words} mots. Réécris-la plus courte : retire "
+        f"des détails secondaires ou un exemple, sans rien ajouter de nouveau. "
+        f"Garde le même sujet, le même ton, et les mêmes transitions "
+        f"d'enchaînement avec ce qui précède/suit.\n\n"
         f"Narration à corriger :\n{previous}\n\n"
-        f"Renvoie uniquement la narration corrigée."
+        f"Renvoie uniquement la narration raccourcie."
     )
+
+
+def _is_valid_narration(text: str) -> bool:
+    """Texte utilisable : prononçable ET sans rupture de personnage détectée."""
+    return is_pronounceable(text) and not has_suspicious_pattern(text)
 
 
 def _fallback_narration(ctx: NarrationContext) -> str:
@@ -209,22 +216,24 @@ def emergency_script(ctx: NarrationContext) -> Script:
 async def generate_slide_script(
     llm: LLMProvider,
     ctx: NarrationContext,
-    tolerance: float,
     max_passes: int,
 ) -> Script:
     """Génère (et corrige au besoin) la narration d'UNE page, avec son contexte."""
-    user_prompt = _build_user_prompt(ctx, tolerance)
+    user_prompt = _build_user_prompt(ctx, ctx.tolerance)
     text = clean_narration(await llm.complete(system=_SYSTEM, user=user_prompt, temperature=0.5))
 
-    # Une réponse sans lettre ni chiffre (« ... », « --- ») ferait échouer la
-    # synthèse vocale plus loin, avec un message incompréhensible : on la
-    # rattrape ici, où l'on peut encore redemander à l'IA.
+    # Deux défauts rattrapés ici, où l'on peut encore redemander à l'IA :
+    # - une réponse sans lettre ni chiffre (« ... », « --- ») ferait échouer
+    #   la synthèse vocale plus loin, avec un message incompréhensible ;
+    # - une rupture de personnage (gabarit non rempli, le modèle qui se
+    #   présente comme une IA) est textuellement valide mais n'a rien à faire
+    #   dans un cours : elle passerait inaperçue jusqu'à l'oreille de l'utilisateur.
     fallback_used = False
-    if not is_pronounceable(text):
+    if not _is_valid_narration(text):
         retry = clean_narration(
             await llm.complete(system=_SYSTEM, user=user_prompt, temperature=0.7)
         )
-        if is_pronounceable(retry):
+        if _is_valid_narration(retry):
             text = retry
         else:
             text = _fallback_narration(ctx)
@@ -233,16 +242,22 @@ async def generate_slide_script(
     actual = count_words(text)
     generation_pass = 1
 
-    if ctx.target_words is not None and max_passes >= 2:
-        if deviation(actual, ctx.target_words) > tolerance:
+    # Correction UNIQUEMENT si la page DÉPASSE largement sa cible — jamais si
+    # elle est en dessous. Demander au modèle de « développer » ou « ajouter
+    # un exemple » pour combler un manque de mots est ce qui produisait des
+    # inventions hors sujet en usage réel ; un texte plus court que prévu
+    # reste fidèle au contenu et est accepté tel quel.
+    if not fallback_used and ctx.target_words is not None and max_passes >= 2:
+        overshoot = (actual - ctx.target_words) / ctx.target_words
+        if overshoot > ctx.tolerance:
             corrected = clean_narration(await llm.complete(
                 system=_SYSTEM,
-                user=_build_correction_prompt(text, actual, ctx.target_words, tolerance),
+                user=_build_trim_prompt(text, actual, ctx.target_words),
                 temperature=0.5,
             ))
-            # Une correction qui rendrait le texte imprononçable est ignorée :
-            # mieux vaut une durée imparfaite qu'un audio impossible.
-            if is_pronounceable(corrected):
+            # Une correction invalide (imprononçable ou hors personnage) est
+            # ignorée : mieux vaut une durée un peu longue qu'un audio abîmé.
+            if _is_valid_narration(corrected):
                 text = corrected
                 actual = count_words(text)
                 generation_pass = 2

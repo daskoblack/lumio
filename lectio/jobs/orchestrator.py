@@ -165,7 +165,6 @@ class Orchestrator:
             )
 
         rate = self._config.voice.default_speech_rate_wps
-        tol = self._config.scripting.word_budget_tolerance
         max_passes = self._config.scripting.max_generation_passes
 
         plan = self._build_narration_plan(course, rate)
@@ -179,19 +178,34 @@ class Orchestrator:
         previous_text: str | None = None
         summaries: list[str] = []
         failures: list[str] = []
+        degradation_reported = False
+        initial_llm_label = getattr(self.llm, "active_label", None)
 
         for ctx in plan:
             ctx.previous_text = previous_text
             ctx.previous_summaries = list(summaries[-scripting._MAX_SUMMARIES:])
             try:
                 ctx.slide.script = await scripting.generate_slide_script(
-                    self.llm, ctx, tol, max_passes
+                    self.llm, ctx, max_passes
                 )
             except LectioError as exc:
                 # Une page qui échoue ne doit pas emporter tout le cours :
                 # narration de secours bâtie sur la page, et on continue.
                 ctx.slide.script = scripting.emergency_script(ctx)
                 failures.append(f"page {ctx.slide.source_page} ({exc})")
+
+            # Le fournisseur d'IA principal peut s'épuiser en cours de route et
+            # basculer vers un modèle plus faible (chaîne de repli) : signalé
+            # une seule fois, à l'endroit où la qualité a pu changer.
+            if not degradation_reported:
+                current_label = getattr(self.llm, "active_label", None)
+                if current_label is not None and current_label != initial_llm_label:
+                    failures.append(
+                        f"page {ctx.slide.source_page} : bascule vers un modèle d'IA de "
+                        f"repli ({current_label}) après épuisement de {initial_llm_label} — "
+                        "la qualité de narration peut être réduite à partir d'ici."
+                    )
+                    degradation_reported = True
 
             ctx.slide.estimated_duration_s = words_to_duration(
                 ctx.slide.script.word_count_actual, rate
@@ -209,6 +223,12 @@ class Orchestrator:
                     section.estimated_duration_s, section.target_duration_s
                 )
 
+        if course.truncated:
+            failures.insert(
+                0,
+                "document long : l'analyse initiale n'a vu qu'une partie du texte, "
+                "les estimations de durée peuvent être moins précises en fin de cours.",
+            )
         course.degraded_pages = failures
         course.status = CourseStatus.SCRIPTED
         self._store.save(course)
@@ -224,17 +244,31 @@ class Orchestrator:
             for position_in_section, slide in enumerate(slides):
                 ordered.append((section, slide, position_in_section == 0))
 
-        # Budget de mots par page, calculé section par section.
+        # Budget de mots par page, calculé section par section. Une cible EST
+        # TOUJOURS posée, y compris en mode Automatique (via l'estimation faite
+        # à l'analyse) : la laisser totalement libre ("écris ce qui te semble
+        # naturel") laissait un modèle bavard produire un texte 2 à 3 fois plus
+        # long que prévu sur les sections que l'utilisateur n'avait pas touchées
+        # — la cause du "20 minutes demandées, 1 heure obtenue".
         targets: dict[str, int | None] = {}
+        tolerances: dict[str, float] = {}
+        explicit_tol = self._config.scripting.word_budget_tolerance
+        auto_tol = self._config.scripting.auto_overshoot_tolerance
         for section in course.sections:
             slides = course.section_slides(section)
             if section.target_duration_s is None:
-                targets.update({s.id: None for s in slides})
+                for s in slides:
+                    # Cas rarissime (LLM n'a fourni aucune estimation) : sans
+                    # aucun ancrage possible, on laisse vraiment libre.
+                    targets[s.id] = s.estimated_narration_words or None
+                    tolerances[s.id] = auto_tol
                 continue
             shares = scripting.distribute_target_words(
                 section, slides, duration_to_words(section.target_duration_s, rate)
             )
-            targets.update({s.id: share for s, share in zip(slides, shares)})
+            for s, share in zip(slides, shares):
+                targets[s.id] = share
+                tolerances[s.id] = explicit_tol
 
         total = len(ordered)
         return [
@@ -246,6 +280,7 @@ class Orchestrator:
                 starts_new_section=starts_new and index > 0,
                 next_slide=ordered[index + 1][1] if index + 1 < total else None,
                 target_words=targets.get(slide.id),
+                tolerance=tolerances.get(slide.id, explicit_tol),
             )
             for index, (section, slide, starts_new) in enumerate(ordered)
         ]
@@ -266,7 +301,6 @@ class Orchestrator:
             course.voice_profile_id,
             self._config.voice.default_speech_rate_wps,
         )
-        tol = self._config.scripting.word_budget_tolerance
         max_passes = self._config.scripting.max_generation_passes
         threshold = self._config.synthesis.deviation_threshold
 
@@ -280,7 +314,7 @@ class Orchestrator:
             ctx.previous_text = previous_text
             try:
                 await synthesis.synthesize_slide(
-                    self.llm, self.tts, ctx, voice, audio_dir, tol, threshold, max_passes
+                    self.llm, self.tts, ctx, voice, audio_dir, threshold, max_passes
                 )
             except LectioError as exc:
                 # Une page muette ne doit pas emporter la vidéo entière : on

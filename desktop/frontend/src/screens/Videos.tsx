@@ -39,6 +39,16 @@ export function Videos({ onResume }: { onResume: (course: Course) => void }) {
               <span className={`status-pill${job.status === 'done' ? ' done' : ''}`}>
                 {STATUS_LABELS[job.status]}
               </span>
+              {job.degraded_pages.length > 0 && (
+                <ul className="degraded-list">
+                  {job.degraded_pages.slice(0, 3).map((msg, i) => (
+                    <li key={i}>⚠ {msg}</li>
+                  ))}
+                  {job.degraded_pages.length > 3 && (
+                    <li>+ {job.degraded_pages.length - 3} autre(s) avertissement(s)</li>
+                  )}
+                </ul>
+              )}
             </div>
             {job.status === 'done' ? (
               <button className="btn-primary" type="button" onClick={() => bridge.openOutputFolder(job.id)}>

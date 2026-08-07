@@ -153,6 +153,13 @@ export function Sections({
         une durée précise : Lumio adapte le texte pour la respecter.
       </p>
 
+      {course.truncated && (
+        <p className="warning-banner">
+          Ce document est long : l'analyse initiale n'a vu qu'une partie du texte.
+          Les durées estimées des dernières parties peuvent être moins précises.
+        </p>
+      )}
+
       <div className="section-list">
         {course.sections.map((s) => {
           const seconds = localSeconds[s.index] ?? s.estimated_duration_s;

@@ -1,5 +1,15 @@
 .section-list { display: flex; flex-direction: column; gap: 16px; margin-top: 4px; }
 
+.warning-banner {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--danger);
+  padding: 10px 14px;
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+  margin: 4px 0 18px;
+}
+
 .sec-card {
   padding: 22px 26px;
   display: grid;

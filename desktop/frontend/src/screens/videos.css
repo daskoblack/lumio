@@ -21,3 +21,16 @@
   color: var(--ink-dim);
 }
 .status-pill.done { background: color-mix(in srgb, var(--success) 20%, transparent); color: var(--success); }
+
+.degraded-list {
+  list-style: none;
+  margin: 2px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 12.5px;
+  color: var(--danger);
+  max-width: 480px;
+}
+.degraded-list li { line-height: 1.4; }
