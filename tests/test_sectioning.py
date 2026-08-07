@@ -15,14 +15,14 @@ def test_build_sections_maps_slides_and_durations():
             {
                 "title": "Intro",
                 "kind": "intro",
-                "summary": "présentation",
+                "context": "Présentation du cours et de ses objectifs.",
                 "source_pages": [1],
                 "estimated_narration_words": 92,
             },
             {
                 "title": "Concept",
                 "kind": "concept",
-                "summary": "le cœur",
+                "context": "Le cœur du sujet : définitions et vocabulaire clé.",
                 "source_pages": [2],
                 "estimated_narration_words": 230,
             },
@@ -33,6 +33,7 @@ def test_build_sections_maps_slides_and_durations():
     assert len(sections) == 2
     assert sections[0].kind.value == "intro"
     assert sections[0].slide_ids == [slides[0].id]
+    assert sections[0].context == "Présentation du cours et de ses objectifs."
     assert sections[1].estimated_duration_s == words_to_duration(230, 2.3)
     # Pas de durée cible tant que l'utilisateur n'en fixe pas.
     assert all(s.target_duration_s is None for s in sections)

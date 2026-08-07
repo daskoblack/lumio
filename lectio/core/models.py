@@ -101,7 +101,11 @@ class Section(BaseModel):
     index: int
     kind: SectionKind = SectionKind.OTHER
     title: str
-    summary: str = ""
+    # Ancrage pédagogique fixé une fois pour toutes à l'analyse (pas déduit au
+    # fil des pages) : ce que couvre la section, son vocabulaire clé, ce qui
+    # est traité ailleurs. Rappelé à CHAQUE page de la section pour limiter la
+    # dérive/répétition en milieu de partie sur les sections longues.
+    context: str = ""
     slide_ids: list[str] = Field(default_factory=list)
 
     # --- Durées (agrégées à partir des slides) ---

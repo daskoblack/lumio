@@ -111,6 +111,27 @@ async def test_previous_and_next_context_passed_to_prompt():
     assert "contenu de la page suivante" in llm.prompt
 
 
+# --- Contexte de section (ancrage anti-dérive) -----------------------------
+
+@pytest.mark.asyncio
+async def test_contexte_de_section_transmis_a_chaque_page():
+    """L'ancrage doit apparaître sur TOUTE page de la section, pas seulement
+    la première : c'est ce qui limite la dérive en milieu de section longue."""
+    llm = _CapturingLLM()
+    section = _section()
+    section.context = "Cette partie couvre les fractions ; ne pas reparler des entiers, déjà vus."
+    await generate_slide_script(llm, _ctx(section=section, position=7, total=20), max_passes=2)
+    assert "les fractions" in llm.prompt
+    assert "ne pas reparler des entiers" in llm.prompt
+
+
+@pytest.mark.asyncio
+async def test_absence_de_contexte_section_omet_le_bloc():
+    llm = _CapturingLLM()
+    await generate_slide_script(llm, _ctx(section=_section()), max_passes=2)  # context="" par défaut
+    assert "Contexte de cette partie" not in llm.prompt
+
+
 # --- Anti-répétition ------------------------------------------------------
 
 @pytest.mark.asyncio

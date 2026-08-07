@@ -109,8 +109,14 @@ def _build_user_prompt(ctx: NarrationContext, tolerance: float) -> str:
         f"Page {ctx.position} sur {ctx.total} du cours.",
         f"Partie en cours : « {ctx.section.title} » — {ctx.section.kind.value}. {hint}",
     ]
-    if ctx.section.summary:
-        lines.append(f"Ce que couvre cette partie : {ctx.section.summary}")
+    if ctx.section.context:
+        # Rappelé à CHAQUE page (pas seulement la première) : c'est l'ancrage
+        # fixe qui limite la dérive/répétition sur les sections longues, là où
+        # le seul fil "page précédente -> page suivante" pouvait s'égarer.
+        lines.append(
+            "Contexte de cette partie, à respecter tout du long sans s'en "
+            f"écarter :\n{ctx.section.context}"
+        )
 
     # --- Ce qui a déjà été dit --------------------------------------------
     if ctx.position == 1:

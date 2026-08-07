@@ -29,7 +29,7 @@ def _pages_couvertes(sections, slides) -> list[int]:
 def _structure(*groupes) -> dict:
     return {
         "sections": [
-            {"title": f"S{i}", "kind": "concept", "summary": "",
+            {"title": f"S{i}", "kind": "concept", "context": "",
              "source_pages": list(pages), "estimated_narration_words": 100}
             for i, pages in enumerate(groupes)
         ]

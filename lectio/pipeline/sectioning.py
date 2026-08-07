@@ -87,7 +87,7 @@ def build_sections(
         raw_sections, [slide.source_page for slide in slides]
     )
     if not raw_sections:  # secours : une section unique couvrant tout le document
-        raw_sections = [{"title": "Cours", "kind": "other", "summary": ""}]
+        raw_sections = [{"title": "Cours", "kind": "other", "context": ""}]
 
     sections: list[Section] = []
     for index, raw in enumerate(raw_sections):
@@ -108,7 +108,7 @@ def build_sections(
                 index=index,
                 kind=kind,
                 title=str(raw.get("title", f"Section {index + 1}")),
-                summary=str(raw.get("summary", "")),
+                context=str(raw.get("context", "")),
                 slide_ids=slide_ids,
                 estimated_narration_words=section_words,
                 estimated_duration_s=section_duration,

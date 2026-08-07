@@ -34,7 +34,7 @@ export interface Section {
   index: number;
   kind: SectionKind;
   title: string;
-  summary: string;
+  context: string;
   slide_ids: string[];
   estimated_narration_words: number;
   target_duration_s: number | null;
