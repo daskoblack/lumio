@@ -43,7 +43,9 @@ voice:
   default_speech_rate_wps: 2.3
 
 scripting:
-  word_budget_tolerance: 0.10        # fourchette ±10% tolérée avant correction texte
+  word_budget_tolerance: 0.10        # fourchette ±10% tolérée avant correction texte (cible EXPLICITE)
+  auto_overshoot_tolerance: 0.30     # idem, mais pour une cible AUTO (simple plafond, pas un ordre précis)
+  min_words_per_page: 70             # plancher absolu par page, quel que soit N pages dans la section
   max_generation_passes: 2           # boucle bornée : 1 génération + 1 correction max
 
 synthesis:

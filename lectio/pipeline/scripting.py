@@ -56,6 +56,10 @@ class NarrationContext:
     tolerance: float = 0.10
     # Rempli par la synthèse : avertissement non bloquant (voix remplacée…).
     warning: str | None = None
+    # Consigne ponctuelle de l'utilisateur pour la RÉGÉNÉRATION CIBLÉE d'une
+    # section depuis l'écran de lecture ("plus court", "reformule l'exemple
+    # avec des fruits"...). None en génération normale.
+    user_instruction: str | None = None
 
 
 _SYSTEM = """Tu es un professeur qui donne un cours à l'oral, face caméra, page \
@@ -142,6 +146,16 @@ def _build_user_prompt(ctx: NarrationContext, tolerance: float) -> str:
                 "Amène-la par une courte transition (une phrase), SANS réintroduire "
                 "le cours ni rappeler ce qui précède."
             )
+
+    if ctx.user_instruction:
+        # Placée juste avant le contenu, en dernière position pour que ce soit
+        # la consigne la plus "fraîche" pour le modèle. Prioritaire mais ne
+        # doit pas casser le reste (cohérence de section, budget) : le modèle
+        # doit l'appliquer EN PLUS, pas à la place, des règles ci-dessus.
+        lines.append(
+            "Consigne spécifique de l'utilisateur pour CETTE page, à respecter "
+            f"en priorité sans perdre le fil du cours : {ctx.user_instruction}"
+        )
 
     # --- Ce qui arrive après ----------------------------------------------
     if ctx.next_slide is not None:
@@ -278,12 +292,18 @@ async def generate_slide_script(
     )
 
 
-def distribute_target_words(section: Section, slides: list[Slide], target_words: int) -> list[int]:
+def distribute_target_words(
+    section: Section, slides: list[Slide], target_words: int, min_words_per_page: int = 70
+) -> list[int]:
     """Répartit un budget de mots cible (dérivé de target_duration_s) entre les pages.
 
     Même logique proportionnelle que l'estimation initiale (poids = part de
     `estimated_narration_words` de chaque page), pour rester cohérent avec le
-    découpage déjà présenté à l'utilisateur.
+    découpage déjà présenté à l'utilisateur. Chaque page reçoit AU MOINS
+    `min_words_per_page` : si l'utilisateur choisit une durée très courte pour
+    une section à beaucoup de pages, mieux vaut dépasser légèrement sa
+    consigne (l'écart résiduel est déjà signalé ailleurs) qu'imposer un
+    budget trop petit pour être écrit correctement.
     """
     if not slides:
         return []
@@ -300,9 +320,9 @@ def distribute_target_words(section: Section, slides: list[Slide], target_words:
     remaining = target_words
     for i, weight in enumerate(weights):
         if i == len(slides) - 1:
-            shares.append(max(1, remaining))
+            shares.append(max(min_words_per_page, remaining))
         else:
-            share = max(1, round(target_words * weight / total_weight))
+            share = max(min_words_per_page, round(target_words * weight / total_weight))
             shares.append(share)
             remaining -= share
     return shares

@@ -5,8 +5,10 @@ import { ProgressBar } from '../components/ProgressBar';
 import { isApiError, type Course, type ProgressEvent } from '../types';
 import './sections.css';
 
-const STAGE_ORDER: ProgressEvent['stage'][] = ['script', 'synthesize', 'render', 'subtitle'];
-const STAGE_LABELS: Record<ProgressEvent['stage'], string> = {
+type GenerationStage = Exclude<ProgressEvent['stage'], 'regenerate'>;
+
+const STAGE_ORDER: GenerationStage[] = ['script', 'synthesize', 'render', 'subtitle'];
+const STAGE_LABELS: Record<GenerationStage, string> = {
   script: 'Écriture du script',
   synthesize: 'Enregistrement de la voix',
   render: 'Montage de la vidéo',
@@ -15,7 +17,7 @@ const STAGE_LABELS: Record<ProgressEvent['stage'], string> = {
 
 /** Part de chaque étape dans le temps total : la barre doit avancer de façon
  *  continue d'un bout à l'autre, sans reculer en changeant d'étape. */
-const STAGE_WEIGHTS: Record<ProgressEvent['stage'], number> = {
+const STAGE_WEIGHTS: Record<GenerationStage, number> = {
   script: 0.40,
   synthesize: 0.35,
   render: 0.20,
@@ -24,12 +26,15 @@ const STAGE_WEIGHTS: Record<ProgressEvent['stage'], number> = {
 
 function overallPercent(event: ProgressEvent | null): number {
   if (!event) return 0;
-  const index = STAGE_ORDER.indexOf(event.stage);
+  // 'regenerate' n'arrive jamais ici (propre à l'écran Lecture) : l'index
+  // négatif qui en résulterait est déjà géré juste en dessous.
+  const index = STAGE_ORDER.indexOf(event.stage as GenerationStage);
   if (index < 0) return 0;
+  const stage = event.stage as GenerationStage;
   const before = STAGE_ORDER.slice(0, index)
-    .reduce((sum, stage) => sum + STAGE_WEIGHTS[stage], 0);
+    .reduce((sum, s) => sum + STAGE_WEIGHTS[s], 0);
   const within = event.total > 0 ? Math.min(1, event.done / event.total) : 0;
-  return (before + STAGE_WEIGHTS[event.stage] * within) * 100;
+  return (before + STAGE_WEIGHTS[stage] * within) * 100;
 }
 
 function formatDuration(totalSeconds: number): string {
@@ -117,7 +122,7 @@ export function Sections({
   );
 
   if (generating) {
-    const stageIndex = progress ? STAGE_ORDER.indexOf(progress.stage) : 0;
+    const stageIndex = progress ? STAGE_ORDER.indexOf(progress.stage as GenerationStage) : 0;
     return (
       <section className="screen-enter generating-view">
         <h1 className="hero">Lumio <span className="glow-text">travaille</span>…</h1>

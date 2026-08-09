@@ -14,7 +14,12 @@ const STATUS_LABELS: Record<CourseStatus, string> = {
   failed: 'Erreur',
 };
 
-export function Videos({ onResume }: { onResume: (course: Course) => void }) {
+export function Videos({
+  onResume, onWatch,
+}: {
+  onResume: (course: Course) => void;
+  onWatch: (course: Course) => void;
+}) {
   const [jobs, setJobs] = useState<Course[] | null>(null);
 
   useEffect(() => {
@@ -51,9 +56,14 @@ export function Videos({ onResume }: { onResume: (course: Course) => void }) {
               )}
             </div>
             {job.status === 'done' ? (
-              <button className="btn-primary" type="button" onClick={() => bridge.openOutputFolder(job.id)}>
-                Ouvrir le dossier
-              </button>
+              <div className="video-actions">
+                <button className="btn-ghost" type="button" onClick={() => onWatch(job)}>
+                  Voir / Modifier
+                </button>
+                <button className="btn-primary" type="button" onClick={() => bridge.openOutputFolder(job.id)}>
+                  Ouvrir le dossier
+                </button>
+              </div>
             ) : (
               <button className="btn-ghost" type="button" onClick={() => onResume(job)}>
                 Reprendre

@@ -5,6 +5,7 @@ import { Wordmark } from './components/Wordmark';
 import { Home } from './screens/Home';
 import { Sections } from './screens/Sections';
 import { Videos } from './screens/Videos';
+import { Player } from './screens/Player';
 import { Settings } from './screens/Settings';
 import type { Course } from './types';
 
@@ -15,6 +16,11 @@ export default function App() {
   function openCourse(c: Course) {
     setCourse(c);
     setScreen('sections');
+  }
+
+  function watchCourse(c: Course) {
+    setCourse(c);
+    setScreen('player');
   }
 
   return (
@@ -37,9 +43,12 @@ export default function App() {
 
         {screen === 'home' && <Home onCourseReady={openCourse} />}
         {screen === 'sections' && (
-          <Sections course={course} onCourseUpdate={setCourse} onFinished={() => setScreen('videos')} />
+          <Sections course={course} onCourseUpdate={setCourse} onFinished={() => setScreen('player')} />
         )}
-        {screen === 'videos' && <Videos onResume={openCourse} />}
+        {screen === 'videos' && <Videos onResume={openCourse} onWatch={watchCourse} />}
+        {screen === 'player' && (
+          <Player course={course} onCourseUpdate={setCourse} onBack={() => setScreen('videos')} />
+        )}
         {screen === 'settings' && <Settings />}
       </main>
     </div>

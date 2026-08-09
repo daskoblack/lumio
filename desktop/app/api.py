@@ -20,7 +20,7 @@ from lectio.core.config import Config
 from lectio.core.exceptions import LectioError
 from lectio.jobs.orchestrator import Orchestrator
 
-from . import paths
+from . import media_server, paths
 from . import settings as settings_store
 
 
@@ -54,6 +54,9 @@ class Api:
         # Un seul Orchestrator réutilisé : ses fournisseurs (LLM/TTS/STT) ne
         # sont donc construits qu'une fois, pas à chaque clic.
         self._orchestrator_instance = Orchestrator(self._config)
+
+        # Sert les vidéos générées au lecteur intégré (voir media_server.py).
+        self._media_port = media_server.start(self._config.workspace_path)
 
     def set_window(self, window: webview.Window) -> None:
         self._window = window
@@ -259,3 +262,24 @@ class Api:
         folder = orch.store.job_dir(job_id) / "output"
         if folder.exists():
             subprocess.Popen(["explorer", str(folder)])  # noqa: S603, S607
+
+    # --- Lecteur intégré + régénération ciblée d'une section ---
+    def video_url(self, job_id: str) -> str | None:
+        """URL locale de la vidéo finie, pour un <video src=...> dans l'écran Lecture."""
+        orch = self._orchestrator()
+        video_path = orch.store.job_dir(job_id) / "output" / "video_final.mp4"
+        if not video_path.exists():
+            return None
+        return f"http://127.0.0.1:{self._media_port}/{job_id}/output/video_final.mp4"
+
+    def regenerate_section(self, job_id: str, section_index: int, instruction: str) -> dict:
+        orch = self._orchestrator()
+        try:
+            course = self._run(
+                orch.regenerate_section(
+                    job_id, section_index, instruction, self._progress_emitter("regenerate")
+                )
+            )
+        except LectioError as exc:
+            return _error_dict(exc)
+        return _course_dict(course)

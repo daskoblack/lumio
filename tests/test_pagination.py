@@ -30,7 +30,7 @@ def _structure(*groupes) -> dict:
     return {
         "sections": [
             {"title": f"S{i}", "kind": "concept", "context": "",
-             "source_pages": list(pages), "estimated_narration_words": 100}
+             "source_pages": list(pages), "estimated_words_per_page": 100}
             for i, pages in enumerate(groupes)
         ]
     }

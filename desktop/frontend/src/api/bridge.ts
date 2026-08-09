@@ -35,6 +35,8 @@ interface PywebviewApi {
   get_job(job_id: string): Promise<CourseResult>;
   list_jobs(): Promise<Course[]>;
   open_output_folder(job_id: string): Promise<void>;
+  video_url(job_id: string): Promise<string | null>;
+  regenerate_section(job_id: string, section_index: number, instruction: string): Promise<CourseResult>;
 }
 
 let readyPromise: Promise<void> | null = null;
@@ -76,6 +78,9 @@ export const bridge = {
   getJob: async (jobId: string) => (await api()).get_job(jobId),
   listJobs: async () => (await api()).list_jobs(),
   openOutputFolder: async (jobId: string) => (await api()).open_output_folder(jobId),
+  videoUrl: async (jobId: string) => (await api()).video_url(jobId),
+  regenerateSection: async (jobId: string, sectionIndex: number, instruction: string) =>
+    (await api()).regenerate_section(jobId, sectionIndex, instruction),
 
   /** S'abonne aux événements de progression envoyés depuis Python. */
   onProgress(handler: (event: ProgressEvent) => void): () => void {

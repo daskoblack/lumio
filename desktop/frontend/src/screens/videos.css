@@ -22,6 +22,8 @@
 }
 .status-pill.done { background: color-mix(in srgb, var(--success) 20%, transparent); color: var(--success); }
 
+.video-actions { display: flex; gap: 10px; }
+
 .degraded-list {
   list-style: none;
   margin: 2px 0 0;

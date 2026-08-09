@@ -111,6 +111,26 @@ async def test_previous_and_next_context_passed_to_prompt():
     assert "contenu de la page suivante" in llm.prompt
 
 
+# --- Consigne utilisateur (régénération ciblée) -----------------------------
+
+@pytest.mark.asyncio
+async def test_consigne_utilisateur_transmise_au_modele():
+    llm = _CapturingLLM()
+    await generate_slide_script(
+        llm, _ctx(user_instruction="Utilise un exemple avec des fruits plutôt que des voitures."),
+        max_passes=2,
+    )
+    assert "Utilise un exemple avec des fruits plutôt que des voitures." in llm.prompt
+    assert "Consigne spécifique de l'utilisateur" in llm.prompt
+
+
+@pytest.mark.asyncio
+async def test_absence_de_consigne_omet_le_bloc():
+    llm = _CapturingLLM()
+    await generate_slide_script(llm, _ctx(), max_passes=2)
+    assert "Consigne spécifique de l'utilisateur" not in llm.prompt
+
+
 # --- Contexte de section (ancrage anti-dérive) -----------------------------
 
 @pytest.mark.asyncio
@@ -179,13 +199,27 @@ def test_distribute_target_words_proportional():
     slides[1].estimated_narration_words = 30
     slides[2].estimated_narration_words = 60
 
-    shares = distribute_target_words(_section(), slides, target_words=100)
+    # Plancher désactivé (1) pour isoler la seule logique proportionnelle.
+    shares = distribute_target_words(_section(), slides, target_words=100, min_words_per_page=1)
     assert sum(shares) == 100
     assert shares[0] < shares[1] < shares[2]
 
 
 def test_distribute_target_words_falls_back_to_even_split_without_estimates():
     slides = [_slide(), _slide()]
-    shares = distribute_target_words(_section(), slides, target_words=50)
+    shares = distribute_target_words(_section(), slides, target_words=50, min_words_per_page=1)
     assert sum(shares) == 50
     assert shares[0] == shares[1]
+
+
+def test_distribute_target_words_respecte_le_plancher():
+    """Une durée choisie trop courte pour le nombre de pages ne doit jamais
+    forcer un budget par page en dessous du plancher -- quitte à dépasser
+    légèrement la durée demandée (mieux vaut ça qu'un texte cassé)."""
+    slides = [_slide(), _slide(), _slide(), _slide()]
+    for s in slides:
+        s.estimated_narration_words = 25  # poids égaux
+
+    # 40 mots pour 4 pages = 10 mots/page en pur prorata : bien sous le plancher.
+    shares = distribute_target_words(_section(), slides, target_words=40, min_words_per_page=70)
+    assert all(share >= 70 for share in shares)

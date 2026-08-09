@@ -83,7 +83,7 @@ export interface LlmStatus {
 }
 
 export interface ProgressEvent {
-  stage: 'script' | 'synthesize' | 'render' | 'subtitle';
+  stage: 'script' | 'synthesize' | 'render' | 'subtitle' | 'regenerate';
   label: string;
   done: number;
   total: number;

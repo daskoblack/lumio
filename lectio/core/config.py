@@ -101,6 +101,13 @@ class ScriptingConfig(BaseModel):
     # de PLAFOND pour empêcher une page de s'emballer, pas d'un ordre précis à
     # atteindre au mot près -> tolérance bien plus large.
     auto_overshoot_tolerance: float = 0.30
+    # Plancher ABSOLU par page, quelle que soit l'estimation (IA ou durée
+    # choisie divisée entre de nombreuses pages) : en dessous, aucune
+    # explication cohérente n'est possible (constat : le "délire" démarrait
+    # nettement sur les sections de 3 pages et plus, où le budget par page
+    # tombait sous ce seuil). Un déterministe, indépendant de la calibration
+    # du modèle -> ne peut pas régresser silencieusement.
+    min_words_per_page: int = 70
     max_generation_passes: int = 2
 
 

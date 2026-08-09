@@ -23,8 +23,12 @@ lieu de dériver ou de se répéter avec le temps. Il doit préciser : ce que \
 cette section couvre exactement, le vocabulaire et les notions clés à \
 employer, et ce qui est déjà traité dans une AUTRE section et ne doit donc \
 PAS être répété ici.
-- Estime le nombre de mots qu'une NARRATION ORALE originale (pas une lecture \
-du PDF) nécessiterait pour bien expliquer cette section.
+- Estime le nombre de mots qu'une narration orale originale (pas une lecture \
+du PDF) nécessiterait pour expliquer CORRECTEMENT UNE SEULE page de cette \
+section (entre 70 et 150 mots dans la grande majorité des cas). CE CHIFFRE \
+NE DOIT PAS DIMINUER quand la section regroupe plus de pages : chaque page \
+garde besoin d'une explication complète, qu'elle soit seule dans sa section \
+ou entourée de neuf autres.
 - Réponds STRICTEMENT en JSON, sans texte autour."""
 
 _USER_TEMPLATE = """Découpe ce cours en sections.
@@ -38,7 +42,7 @@ Réponds avec cet objet JSON exact :
       "kind": "intro|concept|example|exercise|summary|other",
       "context": "3 à 5 phrases : ce que couvre précisément cette partie, le vocabulaire et les notions clés à employer, ce qui est traité ailleurs et à ne pas répéter",
       "source_pages": [1, 2],
-      "estimated_narration_words": 180
+      "estimated_words_per_page": 100
     }}
   ]
 }}

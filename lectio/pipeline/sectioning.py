@@ -75,9 +75,17 @@ def _repair_page_assignment(
 
 
 def build_sections(
-    structure: dict, slides: list[Slide], speech_rate_wps: float
+    structure: dict, slides: list[Slide], speech_rate_wps: float, min_words_per_page: int = 70
 ) -> list[Section]:
-    """Construit les sections à partir de la sortie d'analyse."""
+    """Construit les sections à partir de la sortie d'analyse.
+
+    L'IA estime un nombre de mots PAR PAGE (`estimated_words_per_page`), pas un
+    total pour toute la section : un total unique redistribué mécaniquement
+    entre N pages s'effondrait avec N (à 3 pages et plus, le budget par page
+    tombait sous ce qu'il faut de mots pour une explication cohérente -> le
+    "délire" signalé). Le total de la section est reconstruit à partir de ce
+    chiffre par page, qui lui reste stable quel que soit N.
+    """
     # Index page -> id de slide (les slides sont générées une par page).
     page_to_slide = {slide.source_page: slide.id for slide in slides}
     slide_by_id = {slide.id: slide for slide in slides}
@@ -96,11 +104,14 @@ def build_sections(
 
         slide_ids = [page_to_slide[p] for p in pages_by_section[index]]
 
-        section_words = int(raw.get("estimated_narration_words", 0) or 0)
+        # Défensif : si l'IA omet le champ ou renvoie 0 (modèle de repli qui
+        # ignore la consigne), on ne redescend jamais sous le plancher.
+        words_per_page = int(raw.get("estimated_words_per_page", 0) or 0) or min_words_per_page
+        section_words = words_per_page * max(1, len(slide_ids))
         section_duration = words_to_duration(section_words, speech_rate_wps) if section_words else 0.0
 
         _distribute_words_across_slides(
-            [slide_by_id[sid] for sid in slide_ids], section_words, speech_rate_wps
+            [slide_by_id[sid] for sid in slide_ids], section_words, speech_rate_wps, min_words_per_page
         )
 
         sections.append(
@@ -118,9 +129,14 @@ def build_sections(
 
 
 def _distribute_words_across_slides(
-    slides: list[Slide], total_words: int, speech_rate_wps: float
+    slides: list[Slide], total_words: int, speech_rate_wps: float, min_words_per_page: int = 70
 ) -> None:
-    """Répartit le budget de mots d'une section entre ses slides (prorata du texte source)."""
+    """Répartit le budget de mots d'une section entre ses slides (prorata du texte source).
+
+    Chaque page reçoit AU MOINS `min_words_per_page`, même si le prorata ou un
+    total sous-estimé lui donnerait moins : en dessous, aucune narration
+    cohérente n'est possible, quelle que soit la qualité de l'estimation IA.
+    """
     if not slides:
         return
 
@@ -134,6 +150,6 @@ def _distribute_words_across_slides(
         else:
             share = round(total_words * weight / total_weight)
             remaining -= share
-        slide.estimated_narration_words = max(0, share)
+        slide.estimated_narration_words = max(min_words_per_page, share)
         slide.estimated_duration_s = words_to_duration(slide.estimated_narration_words, speech_rate_wps) \
             if slide.estimated_narration_words else 0.0

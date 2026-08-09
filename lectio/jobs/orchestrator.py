@@ -133,7 +133,8 @@ class Orchestrator:
             course.title = str(structure["course_title"])
 
         course.sections = sectioning.build_sections(
-            structure, slides, self._config.voice.default_speech_rate_wps
+            structure, slides, self._config.voice.default_speech_rate_wps,
+            self._config.scripting.min_words_per_page,
         )
         course.status = CourseStatus.ANALYZED
         self._store.save(course)
@@ -254,17 +255,19 @@ class Orchestrator:
         tolerances: dict[str, float] = {}
         explicit_tol = self._config.scripting.word_budget_tolerance
         auto_tol = self._config.scripting.auto_overshoot_tolerance
+        min_words = self._config.scripting.min_words_per_page
         for section in course.sections:
             slides = course.section_slides(section)
             if section.target_duration_s is None:
                 for s in slides:
-                    # Cas rarissime (LLM n'a fourni aucune estimation) : sans
-                    # aucun ancrage possible, on laisse vraiment libre.
+                    # `estimated_narration_words` inclut déjà le plancher (posé
+                    # à l'analyse) ; `or None` reste un filet pour d'anciens
+                    # jobs analysés avant l'introduction du plancher.
                     targets[s.id] = s.estimated_narration_words or None
                     tolerances[s.id] = auto_tol
                 continue
             shares = scripting.distribute_target_words(
-                section, slides, duration_to_words(section.target_duration_s, rate)
+                section, slides, duration_to_words(section.target_duration_s, rate), min_words
             )
             for s, share in zip(slides, shares):
                 targets[s.id] = share
@@ -449,5 +452,95 @@ class Orchestrator:
         """Active ou non les sous-titres pour ce cours (décidé au planning)."""
         course = self._store.load(job_id)
         course.subtitles_enabled = enabled
+        self._store.save(course)
+        return course
+
+    # --- Régénération ciblée d'une section, depuis l'écran de lecture ---
+    async def regenerate_section(
+        self, job_id: str, section_index: int, instruction: str,
+        on_progress: ProgressCallback | None = None,
+    ) -> Course:
+        """Réécrit UNIQUEMENT les pages d'une section, avec une consigne
+        ponctuelle de l'utilisateur, puis reconstruit la vidéo finale.
+
+        Filet de sécurité complémentaire au plancher de mots/filtre anti-folie :
+        pour le cas résiduel où une section ne satisfait toujours pas
+        l'utilisateur, il peut la corriger sans relancer tout le cours. Les
+        autres sections ne sont ni régénérées ni resynthétisées — seul leur
+        texte déjà en mémoire sert de repère aux pages régénérées.
+        """
+        course = self._store.load(job_id)
+        if course.status not in (CourseStatus.SYNTHESIZED, CourseStatus.RENDERED, CourseStatus.DONE):
+            raise InvalidStateError(
+                f"Régénération impossible depuis l'état {course.status.value} "
+                "(la vidéo doit d'abord avoir été générée une première fois)."
+            )
+        section = course.section_by_index(section_index)
+        if section is None:
+            raise InvalidStateError(f"Section {section_index} inexistante.")
+        if not instruction.strip():
+            raise InvalidStateError("La consigne de régénération ne peut pas être vide.")
+
+        rate = self._config.voice.default_speech_rate_wps
+        max_passes = self._config.scripting.max_generation_passes
+        threshold = self._config.synthesis.deviation_threshold
+        target_slide_ids = set(section.slide_ids)
+
+        plan = self._build_narration_plan(course, rate)
+        progress = _ProgressTracker(
+            f"Régénération de « {section.title} »", len(target_slide_ids), on_progress
+        )
+
+        audio_dir = self._store.job_dir(job_id) / "audio"
+        audio_dir.mkdir(parents=True, exist_ok=True)
+        voice = self._voice_store.load(course.voice_profile_id, course.voice_profile_id, rate)
+
+        previous_text: str | None = None
+        summaries: list[str] = []
+        for ctx in plan:
+            ctx.previous_text = previous_text
+            ctx.previous_summaries = list(summaries[-scripting._MAX_SUMMARIES:])
+
+            if ctx.slide.id in target_slide_ids:
+                ctx.user_instruction = instruction
+                ctx.slide.script = await scripting.generate_slide_script(self.llm, ctx, max_passes)
+                ctx.slide.estimated_duration_s = words_to_duration(
+                    ctx.slide.script.word_count_actual, rate
+                )
+                await synthesis.synthesize_slide(
+                    self.llm, self.tts, ctx, voice, audio_dir, threshold, max_passes
+                )
+                progress.tick(f"Page {ctx.slide.source_page}")
+
+            # Le fil de contexte avance avec le texte RÉEL de chaque page —
+            # nouveau si elle vient d'être régénérée, inchangé sinon. Les
+            # pages hors section ne sont jamais retouchées ; seul leur texte
+            # déjà en mémoire sert de repère aux pages suivantes.
+            previous_text = ctx.slide.script.text if ctx.slide.script else None
+            if ctx.slide.script:
+                summaries.append(scripting.summarize_for_context(ctx.slide.script.text))
+
+        touched = course.section_slides(section)
+        section.estimated_duration_s = sum(s.estimated_duration_s for s in touched)
+        section.actual_duration_s = sum((s.actual_duration_s or 0.0) for s in touched)
+        if section.target_duration_s:
+            section.duration_deviation = deviation(section.actual_duration_s, section.target_duration_s)
+        self._voice_store.save(voice)
+        self._store.save(course)
+
+        # Re-montage complet : simple concaténation par page (timeline.py), mais
+        # le minutage de TOUTES les pages après la section régénérée a bougé.
+        entries = timeline_pipeline.build_timeline(course)
+        output_dir = self._store.job_dir(job_id) / "output"
+        video_path = str(output_dir / "video.mp4")
+        await self.video.assemble(entries, video_path)
+
+        if course.subtitles_enabled:
+            course.status = CourseStatus.RENDERED
+            self._store.save(course)
+            return await self.run_subtitles(job_id, on_progress)
+
+        shutil.copyfile(video_path, output_dir / "video_final.mp4")
+        course.status = CourseStatus.DONE
         self._store.save(course)
         return course

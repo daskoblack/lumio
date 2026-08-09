@@ -1,7 +1,7 @@
 import type { ReactElement } from 'react';
 import './rail.css';
 
-export type ScreenId = 'home' | 'sections' | 'videos' | 'settings';
+export type ScreenId = 'home' | 'sections' | 'videos' | 'player' | 'settings';
 
 const ICONS: Record<ScreenId, ReactElement> = {
   home: (
@@ -19,6 +19,12 @@ const ICONS: Record<ScreenId, ReactElement> = {
       <path d="M16 10l5-3v10l-5-3" />
     </>
   ),
+  player: (
+    <>
+      <rect x="3" y="5" width="18" height="14" rx="2" />
+      <path d="M10 9.5v5l4.5-2.5-4.5-2.5Z" />
+    </>
+  ),
   settings: (
     <>
       <circle cx="12" cy="12" r="3.2" />
@@ -31,6 +37,7 @@ const LABELS: Record<ScreenId, string> = {
   home: 'Accueil',
   sections: 'Sections',
   videos: 'Vidéos',
+  player: 'Lecture',
   settings: 'Réglages',
 };
 
