@@ -10,6 +10,35 @@
 }
 .video-info { display: flex; flex-direction: column; gap: 6px; }
 .video-info h3 { font-family: var(--font-display); font-weight: 700; font-size: 17px; margin: 0; }
+
+.video-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  cursor: pointer;
+  width: fit-content;
+}
+.video-title-edit-hint {
+  font-size: 13px;
+  opacity: 0;
+  color: var(--ink-faint);
+  transition: opacity 0.15s;
+}
+.video-title:hover .video-title-edit-hint { opacity: 1; }
+
+.video-title-input {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 17px;
+  color: var(--ink);
+  background: var(--glass);
+  border: 1px solid var(--glow);
+  border-radius: var(--radius-md);
+  padding: 3px 8px;
+  width: 260px;
+  max-width: 100%;
+}
+.video-title-input:focus { outline: none; }
 .status-pill {
   display: inline-flex;
   align-self: flex-start;

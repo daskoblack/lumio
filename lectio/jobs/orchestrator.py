@@ -274,19 +274,33 @@ class Orchestrator:
                 tolerances[s.id] = explicit_tol
 
         total = len(ordered)
-        return [
-            scripting.NarrationContext(
+        contexts = []
+        for index, (section, slide, starts_new) in enumerate(ordered):
+            content_to_narrate = None
+            # Uniquement entre deux pages de la MÊME section (une frise en
+            # plusieurs phases, jamais un changement de sujet) : au-delà de
+            # cette frontière, un chevauchement textuel serait une coïncidence
+            # à ne pas toucher.
+            if index > 0 and not starts_new:
+                previous_slide = ordered[index - 1][1]
+                content_to_narrate = scripting.dedupe_cumulative_source(
+                    previous_slide.source_text(), slide.source_text()
+                )
+                if content_to_narrate == slide.source_text():
+                    content_to_narrate = None  # aucun chevauchement détecté
+
+            contexts.append(scripting.NarrationContext(
                 section=section,
                 slide=slide,
                 position=index + 1,
                 total=total,
                 starts_new_section=starts_new and index > 0,
                 next_slide=ordered[index + 1][1] if index + 1 < total else None,
+                content_to_narrate=content_to_narrate,
                 target_words=targets.get(slide.id),
                 tolerance=tolerances.get(slide.id, explicit_tol),
-            )
-            for index, (section, slide, starts_new) in enumerate(ordered)
-        ]
+            ))
+        return contexts
 
     # --- Étape 3 : synthèse vocale par slide + calibration + correction bornée (-> SYNTHESIZED) ---
     async def run_synthesis(self, job_id: str, on_progress: ProgressCallback | None = None) -> Course:
@@ -452,6 +466,16 @@ class Orchestrator:
         """Active ou non les sous-titres pour ce cours (décidé au planning)."""
         course = self._store.load(job_id)
         course.subtitles_enabled = enabled
+        self._store.save(course)
+        return course
+
+    def rename_course(self, job_id: str, new_title: str) -> Course:
+        """Renomme un cours (titre affiché dans l'app, indépendant du nom de fichier)."""
+        title = new_title.strip()
+        if not title:
+            raise InvalidStateError("Le titre ne peut pas être vide.")
+        course = self._store.load(job_id)
+        course.title = title
         self._store.save(course)
         return course
 

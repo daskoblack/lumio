@@ -7,6 +7,7 @@ import pytest
 from lectio.core.models import ContentBlock, Section, SectionKind, Slide
 from lectio.pipeline.scripting import (
     NarrationContext,
+    dedupe_cumulative_source,
     distribute_target_words,
     generate_slide_script,
 )
@@ -109,6 +110,53 @@ async def test_previous_and_next_context_passed_to_prompt():
     )
     assert "Nous avons vu l'introduction" in llm.prompt
     assert "contenu de la page suivante" in llm.prompt
+
+
+# --- Déduplication du texte source cumulatif (frises progressives) --------
+
+def test_page_cumulative_ne_repete_pas_le_texte_deja_vu():
+    """Cas réel : une frise en 'build' PowerPoint où chaque page réaffiche
+    tout ce qui a déjà été révélé, plus une nouvelle phase."""
+    page2 = "Phase 1 : origines du mouvement."
+    page3 = "Phase 1 : origines du mouvement. Phase 2 : premiers développements."
+    resultat = dedupe_cumulative_source(page2, page3)
+    assert "Phase 1" not in resultat
+    assert "Phase 2" in resultat
+
+
+def test_pages_sans_lien_ne_sont_pas_touchees():
+    page_a = "Introduction au calcul différentiel et à ses applications."
+    page_b = "La photosynthèse transforme la lumière en énergie chimique."
+    assert dedupe_cumulative_source(page_a, page_b) == page_b
+
+
+def test_court_prefixe_commun_coincidentel_ne_declenche_rien():
+    """Un simple en-tête partagé (ex. le titre du chapitre) ne doit pas être
+    pris pour un chevauchement de contenu."""
+    page_a = "Chapitre 3"
+    page_b = "Chapitre 3 : la révolution industrielle et ses conséquences."
+    assert dedupe_cumulative_source(page_a, page_b) == page_b
+
+
+def test_page_identique_a_la_precedente_reste_inchangee():
+    """Rien de NOUVEAU à en tirer : mieux vaut garder le texte complet que
+    renvoyer une chaîne vide à raconter."""
+    texte = "Phase 1 : origines du mouvement."
+    assert dedupe_cumulative_source(texte, texte) == texte
+
+
+@pytest.mark.asyncio
+async def test_dedup_utilise_content_to_narrate_si_fourni():
+    """Le prompt doit utiliser content_to_narrate à la place du texte brut
+    de la page quand il est renseigné."""
+    llm = _CapturingLLM()
+    slide = _slide("Phase 1 : origines. Phase 2 : développements.")
+    await generate_slide_script(
+        llm, _ctx(slide=slide, content_to_narrate="Phase 2 : développements."),
+        max_passes=2,
+    )
+    assert "Phase 1" not in llm.prompt
+    assert "Phase 2 : développements." in llm.prompt
 
 
 # --- Consigne utilisateur (régénération ciblée) -----------------------------

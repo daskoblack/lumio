@@ -27,6 +27,7 @@ interface PywebviewApi {
   analyze(pdf_path: string, voice_id: string | null, title: string | null): Promise<CourseResult>;
   set_durations(job_id: string, section_indices: number[], duration_s: number | null): Promise<CourseResult>;
   set_subtitles(job_id: string, enabled: boolean): Promise<CourseResult>;
+  rename_course(job_id: string, new_title: string): Promise<CourseResult>;
   run_script(job_id: string): Promise<CourseResult>;
   run_synthesize(job_id: string): Promise<CourseResult>;
   run_render(job_id: string): Promise<CourseResult>;
@@ -70,6 +71,8 @@ export const bridge = {
     (await api()).set_durations(jobId, sectionIndices, durationS),
   setSubtitles: async (jobId: string, enabled: boolean) =>
     (await api()).set_subtitles(jobId, enabled),
+  renameCourse: async (jobId: string, newTitle: string) =>
+    (await api()).rename_course(jobId, newTitle),
   runScript: async (jobId: string) => (await api()).run_script(jobId),
   runSynthesize: async (jobId: string) => (await api()).run_synthesize(jobId),
   runRender: async (jobId: string) => (await api()).run_render(jobId),

@@ -194,6 +194,15 @@ class Api:
             return _error_dict(exc)
         return _course_dict(course)
 
+    def rename_course(self, job_id: str, new_title: str) -> dict:
+        orch = self._orchestrator()
+        try:
+            with self._lock:
+                course = orch.rename_course(job_id, new_title)
+        except LectioError as exc:
+            return _error_dict(exc)
+        return _course_dict(course)
+
     # --- Étapes individuelles (utiles pour ré-essayer une étape précise) ---
     def run_script(self, job_id: str) -> dict:
         orch = self._orchestrator()

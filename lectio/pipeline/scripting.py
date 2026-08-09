@@ -21,6 +21,7 @@ Principe de durée (inchangé) :
 
 from __future__ import annotations
 
+import difflib
 from dataclasses import dataclass, field
 
 from ..core.models import Script, Section, SectionKind, Slide
@@ -32,6 +33,45 @@ _FALLBACK_MAX_CHARS = 600   # de quoi une narration de secours plausible, pas pl
 _PREVIEW_CHARS = 250        # aperçu de la page suivante : de quoi amener, pas dévoiler
 _SUMMARY_CHARS = 130        # longueur d'un rappel de page déjà traitée
 _MAX_SUMMARIES = 6          # borne la taille du prompt sur un cours long
+
+# Seuils de détection du texte source cumulatif (frises/animations en
+# construction progressive : chaque page PDF réaffiche tout ce qui a déjà été
+# révélé + un élément de plus). En dessous, on ne touche à rien : mieux vaut
+# rater un vrai doublon que couper du contenu légitime par erreur.
+# Vérifié en conditions réelles : une première phase de frise peut être
+# courte (« Phase 1 : origines. » ~20 caractères) ; un seuil trop haut la
+# laissait passer sans déduplication. 15 reste sûr contre un simple en-tête
+# partagé (« Chapitre 3 », 10 caractères, voir test dédié).
+_DEDUPE_MIN_OVERLAP_CHARS = 15
+_DEDUPE_MIN_SIMILARITY = 0.85
+
+
+def dedupe_cumulative_source(previous_source: str, current_source: str) -> str:
+    """Retire, du texte source de CETTE page, ce qui répète déjà la page
+    précédente presque mot pour mot en début de texte.
+
+    Cas visé : une frise en 5 phases exportée en 'build' PowerPoint, où la
+    page 3 contient tout le texte de la page 2 (elle-même contenant celui de
+    la page 1) suivi de la nouvelle phase. Sans ça, on demande au modèle
+    d'« expliquer le contenu de cette page », qui grossit à chaque page —
+    un modèle fidèle à la consigne récapitule donc de plus en plus.
+
+    Ne touche JAMAIS aux images rendues (la frise complète doit rester
+    visible à l'écran) : uniquement le texte envoyé au modèle pour savoir
+    quoi raconter.
+    """
+    prev_norm = " ".join(previous_source.split())
+    curr_norm = " ".join(current_source.split())
+    if len(prev_norm) < _DEDUPE_MIN_OVERLAP_CHARS or not curr_norm or prev_norm == curr_norm:
+        return current_source
+
+    prefix_len = min(len(prev_norm), len(curr_norm))
+    similarity = difflib.SequenceMatcher(None, prev_norm, curr_norm[:prefix_len]).ratio()
+    if similarity < _DEDUPE_MIN_SIMILARITY:
+        return current_source  # pas un vrai chevauchement, juste une coïncidence
+
+    remainder = curr_norm[prefix_len:].strip()
+    return remainder or current_source  # rien de nouveau -> on garde tout, par sécurité
 
 
 @dataclass
@@ -50,6 +90,10 @@ class NarrationContext:
     previous_text: str | None = None
     previous_summaries: list[str] = field(default_factory=list)
     next_slide: Slide | None = None
+    # Texte source à narrer pour cette page, si différent de
+    # `slide.source_text()` (voir `dedupe_cumulative_source`). None = aucun
+    # chevauchement détecté, on utilise le texte de la page tel quel.
+    content_to_narrate: str | None = None
     target_words: int | None = None
     # Tolérance de dépassement avant correction. Plus large pour une cible AUTO
     # (simple plafond estimé) que pour une cible EXPLICITE (choisie par l'utilisateur).
@@ -169,7 +213,7 @@ def _build_user_prompt(ctx: NarrationContext, tolerance: float) -> str:
 
     return (
         "\n".join(lines)
-        + f"\n\nContenu de CETTE page à expliquer :\n{ctx.slide.source_text()}\n\n"
+        + f"\n\nContenu de CETTE page à expliquer :\n{ctx.content_to_narrate or ctx.slide.source_text()}\n\n"
         + f"{budget}\n\nRédige uniquement la narration parlée de cette page."
     )
 

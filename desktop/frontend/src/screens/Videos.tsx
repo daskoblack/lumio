@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { bridge } from '../api/bridge';
-import type { Course, CourseStatus } from '../types';
+import { isApiError, type Course, type CourseStatus } from '../types';
 import './videos.css';
 
 const STATUS_LABELS: Record<CourseStatus, string> = {
@@ -14,6 +14,46 @@ const STATUS_LABELS: Record<CourseStatus, string> = {
   failed: 'Erreur',
 };
 
+function VideoTitle({ job, onRenamed }: { job: Course; onRenamed: (c: Course) => void }) {
+  const [editing, setEditing] = useState(false);
+  const [value, setValue] = useState(job.title);
+
+  useEffect(() => { setValue(job.title); }, [job.title]);
+
+  async function commit() {
+    setEditing(false);
+    const trimmed = value.trim();
+    if (!trimmed || trimmed === job.title) { setValue(job.title); return; }
+    const result = await bridge.renameCourse(job.id, trimmed);
+    if (isApiError(result)) { setValue(job.title); return; }
+    onRenamed(result);
+  }
+
+  if (editing) {
+    return (
+      <input
+        className="video-title-input"
+        value={value}
+        autoFocus
+        onFocus={(e) => e.currentTarget.select()}
+        onChange={(e) => setValue(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') (e.currentTarget as HTMLInputElement).blur();
+          if (e.key === 'Escape') { setValue(job.title); setEditing(false); }
+        }}
+      />
+    );
+  }
+
+  return (
+    <h3 className="video-title" onClick={() => setEditing(true)} title="Cliquer pour renommer">
+      {job.title}
+      <span className="video-title-edit-hint" aria-hidden="true">✎</span>
+    </h3>
+  );
+}
+
 export function Videos({
   onResume, onWatch,
 }: {
@@ -25,6 +65,10 @@ export function Videos({
   useEffect(() => {
     bridge.listJobs().then((list) => setJobs([...list].reverse()));
   }, []);
+
+  function updateJob(updated: Course) {
+    setJobs((prev) => prev?.map((j) => (j.id === updated.id ? updated : j)) ?? prev);
+  }
 
   return (
     <section className="screen-enter">
@@ -40,7 +84,7 @@ export function Videos({
         {jobs?.map((job) => (
           <div className="card video-card" key={job.id}>
             <div className="video-info">
-              <h3>{job.title}</h3>
+              <VideoTitle job={job} onRenamed={updateJob} />
               <span className={`status-pill${job.status === 'done' ? ' done' : ''}`}>
                 {STATUS_LABELS[job.status]}
               </span>
