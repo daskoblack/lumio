@@ -96,10 +96,14 @@ class VoiceConfig(BaseModel):
 
 
 class ScriptingConfig(BaseModel):
-    word_budget_tolerance: float = 0.10       # cible EXPLICITE (l'utilisateur a choisi une durée)
+    # Cible EXPLICITE (l'utilisateur a choisi une durée pour cette section) :
+    # marge volontairement serrée, corrigée dans les deux sens (voir
+    # NarrationContext.precise) jusqu'à max_generation_passes tentatives.
+    word_budget_tolerance: float = 0.05
     # Cible AUTO (estimée à l'analyse, jamais choisie par l'utilisateur) : sert
     # de PLAFOND pour empêcher une page de s'emballer, pas d'un ordre précis à
-    # atteindre au mot près -> tolérance bien plus large.
+    # atteindre au mot près -> tolérance bien plus large, correction UNIQUEMENT
+    # en cas de dépassement (jamais pour un manque : aucune promesse à tenir).
     auto_overshoot_tolerance: float = 0.30
     # Plancher ABSOLU par page, quelle que soit l'estimation (IA ou durée
     # choisie divisée entre de nombreuses pages) : en dessous, aucune
@@ -108,11 +112,17 @@ class ScriptingConfig(BaseModel):
     # tombait sous ce seuil). Un déterministe, indépendant de la calibration
     # du modèle -> ne peut pas régresser silencieusement.
     min_words_per_page: int = 70
-    max_generation_passes: int = 2
+    # 1 génération + jusqu'à 3 corrections pour une cible EXPLICITE (converger
+    # vers une marge de 5% demande plus qu'une seule passe) ; une cible AUTO ne
+    # fait jamais plus d'UNE correction quelle que soit cette valeur.
+    max_generation_passes: int = 4
 
 
 class SynthesisConfig(BaseModel):
-    deviation_threshold: float = 0.12
+    # Écart audio réel/cible toléré avant une re-synthèse. Plus serré que le
+    # texte (5%) : la durée réelle d'un TTS varie naturellement d'une syllabe
+    # à l'autre, une marge trop fine ferait osciller sans jamais converger.
+    deviation_threshold: float = 0.08
 
 
 class SlidesConfig(BaseModel):

@@ -12,7 +12,7 @@ export function DurationSlider({
   seconds,
   isAuto,
   min = 15,
-  max = 300,
+  max = 1800,  // 30 minutes
   onChange,
   onCommit,
 }: {

@@ -69,7 +69,7 @@ async def test_depassement_declenche_une_correction():
 
 
 @pytest.mark.asyncio
-async def test_manque_de_mots_n_est_JAMAIS_corrige():
+async def test_manque_de_mots_n_est_JAMAIS_corrige_en_mode_auto():
     """Le cœur du correctif anti-invention : un texte trop COURT est accepté
     tel quel, jamais renvoyé au modèle pour être "complété"."""
     llm = FakeLLM([40])  # bien en dessous de la cible de 120
@@ -80,11 +80,109 @@ async def test_manque_de_mots_n_est_JAMAIS_corrige():
 
 
 @pytest.mark.asyncio
-async def test_correction_is_bounded_to_one_pass():
+async def test_auto_correction_is_bounded_to_one_pass():
     llm = FakeLLM([200, 190])  # la correction dépasse encore : acceptée telle quelle
     script = await generate_slide_script(llm, _ctx(target_words=120), max_passes=2)
     assert script.generation_pass == 2
     assert llm.calls == 2  # jamais 3
+
+
+# --- Cible PRÉCISE (durée choisie par l'utilisateur) : correction bidirectionnelle --
+
+class _PromptAwareLLM(LLMProvider):
+    """Simule une convergence réaliste : réagit au TYPE de consigne reçue
+    (raccourcir vs développer) plutôt qu'à renvoyer une liste figée."""
+
+    def __init__(self, first_words: int, step: int) -> None:
+        self.first_words = first_words
+        self.step = step
+        self.calls = 0
+        self.prompts: list[str] = []
+
+    async def complete(self, system, user, *, json_mode=False, temperature=None, max_tokens=None):
+        self.calls += 1
+        self.prompts.append(user)
+        if self.calls == 1:
+            n = self.first_words
+        elif "plus courte" in user:
+            n = max(1, self._last_n - self.step)
+        else:  # "Développe-la"
+            n = self._last_n + self.step
+        self._last_n = n
+        return " ".join(["mot"] * n)
+
+
+@pytest.mark.asyncio
+async def test_precise_manque_est_corrige():
+    """Le contraire du mode auto : une cible EXPLICITE corrige aussi un manque."""
+    llm = _PromptAwareLLM(first_words=40, step=70)  # 40 -> 110, dans la marge de 120±10%
+    script = await generate_slide_script(
+        llm, _ctx(target_words=120, tolerance=0.10, precise=True,
+                   slide=_slide("Contenu source de la page.")),
+        max_passes=4,
+    )
+    assert script.generation_pass == 2
+    assert script.word_count_actual == 110
+    assert "Développe-la" in llm.prompts[1]
+    assert "N'INVENTE RIEN" in llm.prompts[1]
+
+
+@pytest.mark.asyncio
+async def test_precise_extend_prompt_transmet_le_texte_source():
+    """La consigne d'allongement doit fournir le texte source réel (jamais
+    une invitation à inventer sans matière)."""
+    llm = _PromptAwareLLM(first_words=30, step=200)
+    slide = _slide("Les fractions permettent de représenter une partie d'un tout.")
+    await generate_slide_script(
+        llm, _ctx(target_words=100, tolerance=0.10, precise=True, slide=slide),
+        max_passes=4,
+    )
+    assert "Les fractions permettent de représenter une partie d'un tout." in llm.prompts[1]
+
+
+@pytest.mark.asyncio
+async def test_precise_converge_en_plusieurs_passes():
+    llm = _PromptAwareLLM(first_words=30, step=25)  # 30 -> 55 -> 80 -> 105 (dans 100±10%)
+    script = await generate_slide_script(
+        llm, _ctx(target_words=100, tolerance=0.10, precise=True), max_passes=4,
+    )
+    assert script.word_count_actual == 105
+    assert script.generation_pass == 4
+    assert llm.calls == 4
+
+
+@pytest.mark.asyncio
+async def test_precise_borne_le_nombre_de_tentatives():
+    """Un texte qui ne converge JAMAIS doit s'arrêter à max_passes, pas boucler."""
+    llm = _PromptAwareLLM(first_words=10, step=1)  # ne rentrera jamais dans la marge
+    script = await generate_slide_script(
+        llm, _ctx(target_words=500, tolerance=0.05, precise=True), max_passes=4,
+    )
+    assert llm.calls == 4  # 1 génération + 3 corrections, jamais plus
+    assert script.generation_pass == 4
+
+
+@pytest.mark.asyncio
+async def test_precise_correction_invalide_est_ignoree():
+    """Une extension qui finit par inventer/dérailler malgré la consigne est
+    écartée : on garde le dernier texte fiable plutôt que le résultat cassé."""
+    class _DerailleLLM(LLMProvider):
+        def __init__(self):
+            self.calls = 0
+
+        async def complete(self, system, user, *, json_mode=False, temperature=None, max_tokens=None):
+            self.calls += 1
+            if self.calls == 1:
+                return "Un texte correct mais un peu court pour la cible fixée ici."
+            return "En tant qu'assistant, je ne peux pas développer davantage ce point précis."
+
+    llm = _DerailleLLM()
+    script = await generate_slide_script(
+        llm, _ctx(target_words=200, tolerance=0.05, precise=True), max_passes=4,
+    )
+    assert script.text == "Un texte correct mais un peu court pour la cible fixée ici."
+    assert script.generation_pass == 2  # la correction a été tentée puis écartée
+    assert llm.calls == 2  # pas de nouvelle tentative après un résultat invalide
 
 
 class _CapturingLLM(LLMProvider):

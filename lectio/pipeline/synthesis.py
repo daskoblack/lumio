@@ -5,9 +5,14 @@ page :
 1. TTS du script actuel -> mesure de la durée RÉELLE (ffprobe, autorité finale)
 2. Calibration du VoiceProfile (débit) à partir de cette mesure
 3. Si un budget de mots cible existe ET que l'écart réel/cible dépasse le
-   seuil : UNE seule régénération du texte de CETTE page (même contexte
-   narratif), + un seul nouveau TTS. Résultat accepté quel que soit l'écart
-   résiduel, avec une note sur la section.
+   seuil : régénère le texte (même contexte narratif) et resynthétise.
+
+Pour une cible EXPLICITE (`ctx.precise`), la correction est BIDIRECTIONNELLE
+et bornée à `_MAX_AUDIO_ATTEMPTS_PRECISE` tentatives -- le texte a déjà
+convergé en mots (voir scripting._refine_to_target), ici on absorbe surtout
+la variance naturelle du débit réel de la voix. Pour une cible AUTO, la
+correction reste UNIQUE et n'agit qu'en cas de dépassement (comportement
+historique : aucune promesse explicite à tenir sur une section non configurée).
 
 Sans cible, aucune contrainte : la durée réelle du premier TTS fait foi.
 """
@@ -20,6 +25,9 @@ from ..providers.llm.base import LLMProvider
 from ..providers.tts.base import TTSProvider, VoiceProfile
 from . import scripting
 from .scripting import NarrationContext
+
+_MAX_AUDIO_ATTEMPTS_PRECISE = 3  # 1 synthèse + jusqu'à 2 corrections
+_MAX_AUDIO_ATTEMPTS_AUTO = 2     # 1 synthèse + 1 correction max (inchangé)
 
 
 async def synthesize_slide(
@@ -46,32 +54,42 @@ async def synthesize_slide(
 
     target_words = slide.script.word_count_target
     if target_words is None:
-        return  # mode auto : pas de contrainte, la durée réelle fait foi telle quelle
+        return  # mode auto sans estimation : pas de contrainte
 
-    # Cible de durée équivalente pour CETTE page (dérivée de son budget de mots).
-    # Asymétrique, comme la correction de texte : on ne régénère QUE si l'audio
-    # DÉPASSE la cible. Une page plus courte que prévu reste fidèle au contenu
-    # réel ; redemander du texte pour la "compléter" est ce qui poussait le
-    # modèle à inventer du contenu hors sujet.
+    # Recalculée à chaque tentative avec le débit fraîchement calibré : plus
+    # les pages avancent, plus cette cible en secondes reflète la voix réelle.
     slide_target_s = target_words / voice.speech_rate_wps
-    if result.duration_s <= slide_target_s * (1 + deviation_threshold):
-        return
+    max_attempts = _MAX_AUDIO_ATTEMPTS_PRECISE if ctx.precise else _MAX_AUDIO_ATTEMPTS_AUTO
+    attempts = 1
 
-    # Correction UNIQUE : régénère le texte de cette page avec le débit calibré.
-    slide.script = await scripting.generate_slide_script(llm, ctx, max_passes)
+    while attempts < max_attempts:
+        gap = (result.duration_s - slide_target_s) / slide_target_s
+        if ctx.precise:
+            if abs(gap) <= deviation_threshold:
+                break
+        else:
+            # Cible AUTO : comportement historique -- jamais de correction
+            # pour un manque, uniquement en cas de dépassement.
+            if gap <= deviation_threshold:
+                break
 
-    result2 = await tts.synthesize(slide.script.text, voice, out_path)
-    slide.script.audio_path = result2.audio_path
-    slide.script.audio_duration_s = result2.duration_s
-    slide.actual_duration_s = result2.duration_s
-    voice.recalibrate(result2.word_count, result2.duration_s)
+        slide.script = await scripting.generate_slide_script(llm, ctx, max_passes)
+        result = await tts.synthesize(slide.script.text, voice, out_path)
+        ctx.warning = result.warning or ctx.warning
+        slide.script.audio_path = result.audio_path
+        slide.script.audio_duration_s = result.duration_s
+        slide.actual_duration_s = result.duration_s
+        voice.recalibrate(result.word_count, result.duration_s)
+        slide_target_s = target_words / voice.speech_rate_wps
+        attempts += 1
 
-    if result2.duration_s > slide_target_s * (1 + deviation_threshold):
-        residual = (result2.duration_s - slide_target_s) / slide_target_s
+    final_gap = (result.duration_s - slide_target_s) / slide_target_s
+    residual = abs(final_gap) > deviation_threshold if ctx.precise else final_gap > deviation_threshold
+    if residual:
         section = ctx.section
+        direction = "Dépassement" if final_gap > 0 else "Manque"
         section.synthesis_note = (
             f"{section.synthesis_note + ' ' if section.synthesis_note else ''}"
-            f"Dépassement résiduel de {residual:.0%} après correction sur la page "
-            f"{slide.source_page} (cible {slide_target_s:.0f}s, "
-            f"réel {result2.duration_s:.0f}s)."
+            f"{direction} résiduel de {abs(final_gap):.0%} sur la page "
+            f"{slide.source_page} (cible {slide_target_s:.0f}s, réel {result.duration_s:.0f}s)."
         )

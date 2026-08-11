@@ -299,6 +299,7 @@ class Orchestrator:
                 content_to_narrate=content_to_narrate,
                 target_words=targets.get(slide.id),
                 tolerance=tolerances.get(slide.id, explicit_tol),
+                precise=section.target_duration_s is not None,
             ))
         return contexts
 

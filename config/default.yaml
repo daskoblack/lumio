@@ -43,14 +43,14 @@ voice:
   default_speech_rate_wps: 2.3
 
 scripting:
-  word_budget_tolerance: 0.10        # fourchette ±10% tolérée avant correction texte (cible EXPLICITE)
+  word_budget_tolerance: 0.05        # fourchette ±5% tolérée avant correction texte (cible EXPLICITE)
   auto_overshoot_tolerance: 0.30     # idem, mais pour une cible AUTO (simple plafond, pas un ordre précis)
   min_words_per_page: 70             # plancher absolu par page, quel que soit N pages dans la section
-  max_generation_passes: 2           # boucle bornée : 1 génération + 1 correction max
+  max_generation_passes: 4           # boucle bornée : 1 génération + jusqu'à 3 corrections (cible EXPLICITE)
 
 synthesis:
-  # Écart |réel - cible| / cible déclenchant l'unique 2e passe TTS.
-  deviation_threshold: 0.12
+  # Écart |réel - cible| / cible déclenchant une re-synthèse (cible EXPLICITE).
+  deviation_threshold: 0.08
 
 slides:
   width: 1920

@@ -12,11 +12,20 @@ Approche :
   redire ce qui a déjà été traité) + aperçu de la page suivante (pour amener
   une transition).
 
-Principe de durée (inchangé) :
+Principe de durée :
 - Si l'utilisateur a fixé `target_duration_s` sur la SECTION, ce budget est
-  réparti entre ses pages, et chaque page vise son propre budget de mots.
+  réparti entre ses pages, et chaque page vise son propre budget de mots
+  (`NarrationContext.precise = True`).
 - Vérification du nombre de mots APRÈS génération (gratuit, sans TTS). Hors
-  tolérance -> UNE seule passe de correction du texte (boucle bornée).
+  tolérance -> correction BIDIRECTIONNELLE et itérative, bornée à
+  `max_generation_passes` tentatives (voir `_refine_to_target`). Le sens
+  "allonger" est strictement borné au texte source de la page (jamais
+  d'invention) -- contrairement à l'ancien comportement (retiré en v1.0.5)
+  qui produisait des inventions hors sujet en demandant d'« ajouter un
+  exemple » sans contrainte de source.
+- Une cible AUTO (estimée, jamais choisie par l'utilisateur) garde le
+  comportement historique : correction unique, uniquement en cas de
+  dépassement.
 """
 
 from __future__ import annotations
@@ -98,6 +107,12 @@ class NarrationContext:
     # Tolérance de dépassement avant correction. Plus large pour une cible AUTO
     # (simple plafond estimé) que pour une cible EXPLICITE (choisie par l'utilisateur).
     tolerance: float = 0.10
+    # True uniquement pour une cible EXPLICITE (l'utilisateur a choisi une
+    # durée sur cette section) : déclenche la correction BIDIRECTIONNELLE et
+    # itérative (voir _refine_to_target). Une cible AUTO reste corrigée au
+    # mieux, uniquement en cas de dépassement, en une seule passe -> aucune
+    # promesse explicite à tenir, pas la peine d'y consacrer plus d'appels IA.
+    precise: bool = False
     # Rempli par la synthèse : avertissement non bloquant (voix remplacée…).
     warning: str | None = None
     # Consigne ponctuelle de l'utilisateur pour la RÉGÉNÉRATION CIBLÉE d'une
@@ -219,22 +234,39 @@ def _build_user_prompt(ctx: NarrationContext, tolerance: float) -> str:
 
 
 def _build_trim_prompt(previous: str, actual_words: int, target_words: int) -> str:
-    """Demande de RACCOURCIR uniquement.
-
-    Jamais l'inverse : demander au modèle d'« ajouter un exemple » ou de
-    « développer » pour atteindre une cible produisait des inventions hors
-    sujet (le modèle comble le vide avec du contenu non sourcé, jusqu'à des
-    ruptures de personnage). Un texte plus court que prévu reste fidèle au
-    contenu réel : il est accepté tel quel plutôt que gonflé artificiellement.
-    """
+    """Demande de RACCOURCIR. Jamais d'invention possible dans ce sens : on
+    ne fait que retirer, le risque de dérive hors sujet est nul."""
     return (
-        f"La narration suivante fait {actual_words} mots, largement au-dessus "
-        f"de la cible de {target_words} mots. Réécris-la plus courte : retire "
+        f"La narration suivante fait {actual_words} mots, au-dessus de la "
+        f"cible de {target_words} mots. Réécris-la plus courte : retire "
         f"des détails secondaires ou un exemple, sans rien ajouter de nouveau. "
         f"Garde le même sujet, le même ton, et les mêmes transitions "
         f"d'enchaînement avec ce qui précède/suit.\n\n"
         f"Narration à corriger :\n{previous}\n\n"
         f"Renvoie uniquement la narration raccourcie."
+    )
+
+
+def _build_extend_prompt(previous: str, actual_words: int, target_words: int, source: str) -> str:
+    """Demande d'ALLONGER, en restant strictement dans la matière déjà
+    fournie par la page (jamais un exemple ou un fait qui n'y figure pas).
+
+    Distinct de l'ancien comportement (retiré en v1.0.5 après avoir produit
+    des inventions hors sujet en usage réel, jusqu'à des ruptures de
+    personnage) : ici, le développement est explicitement borné au texte
+    source de la page, pas à l'imagination du modèle.
+    """
+    return (
+        f"La narration suivante fait {actual_words} mots, en dessous de la "
+        f"cible de {target_words} mots. Développe-la : explique plus en détail "
+        f"un point déjà présent dans le texte source ci-dessous, ou reformule "
+        f"une idée pour être plus complet. N'INVENTE RIEN : n'ajoute aucun "
+        f"exemple, fait ou notion qui ne figure pas dans ce texte source. Si le "
+        f"texte source ne contient vraiment rien de plus à en tirer, reformule "
+        f"plus lentement plutôt que d'ajouter une idée nouvelle.\n\n"
+        f"Texte source de cette page (seule matière disponible) :\n{source}\n\n"
+        f"Narration à développer :\n{previous}\n\n"
+        f"Renvoie uniquement la narration développée."
     )
 
 
@@ -306,25 +338,30 @@ async def generate_slide_script(
     actual = count_words(text)
     generation_pass = 1
 
-    # Correction UNIQUEMENT si la page DÉPASSE largement sa cible — jamais si
-    # elle est en dessous. Demander au modèle de « développer » ou « ajouter
-    # un exemple » pour combler un manque de mots est ce qui produisait des
-    # inventions hors sujet en usage réel ; un texte plus court que prévu
-    # reste fidèle au contenu et est accepté tel quel.
     if not fallback_used and ctx.target_words is not None and max_passes >= 2:
-        overshoot = (actual - ctx.target_words) / ctx.target_words
-        if overshoot > ctx.tolerance:
-            corrected = clean_narration(await llm.complete(
-                system=_SYSTEM,
-                user=_build_trim_prompt(text, actual, ctx.target_words),
-                temperature=0.5,
-            ))
-            # Une correction invalide (imprononçable ou hors personnage) est
-            # ignorée : mieux vaut une durée un peu longue qu'un audio abîmé.
-            if _is_valid_narration(corrected):
-                text = corrected
-                actual = count_words(text)
-                generation_pass = 2
+        if ctx.precise:
+            # Cible EXPLICITE : converge dans les deux sens, sur plusieurs
+            # passes si besoin, jusqu'à la marge configurée.
+            text, actual, generation_pass = await _refine_to_target(
+                llm, ctx, text, actual, max_passes
+            )
+        else:
+            # Cible AUTO : comportement historique, inchangé -- correction
+            # UNIQUEMENT en cas de dépassement, une seule tentative. Un
+            # manque reste fidèle au contenu et est accepté tel quel (aucune
+            # promesse explicite de durée à tenir sur une section que
+            # l'utilisateur n'a pas configurée).
+            overshoot = (actual - ctx.target_words) / ctx.target_words
+            if overshoot > ctx.tolerance:
+                corrected = clean_narration(await llm.complete(
+                    system=_SYSTEM,
+                    user=_build_trim_prompt(text, actual, ctx.target_words),
+                    temperature=0.5,
+                ))
+                if _is_valid_narration(corrected):
+                    text = corrected
+                    actual = count_words(text)
+                    generation_pass = 2
 
     return Script(
         slide_id=ctx.slide.id,
@@ -334,6 +371,45 @@ async def generate_slide_script(
         generation_pass=generation_pass,
         fallback_used=fallback_used,
     )
+
+
+async def _refine_to_target(
+    llm: LLMProvider, ctx: NarrationContext, text: str, actual: int, max_passes: int
+) -> tuple[str, int, int]:
+    """Boucle bornée : corrige dans les deux sens jusqu'à tenir la tolérance
+    de `ctx`, ou jusqu'à épuiser `max_passes` tentatives.
+
+    Le sens "allonger" est strictement borné au texte source de la page
+    (voir `_build_extend_prompt`) : jamais d'invention, contrairement à
+    l'ancien comportement retiré en v1.0.5.
+    """
+    assert ctx.target_words is not None
+    source = ctx.content_to_narrate or ctx.slide.source_text()
+    generation_pass = 1
+
+    while generation_pass < max_passes:
+        gap = (actual - ctx.target_words) / ctx.target_words
+        if abs(gap) <= ctx.tolerance:
+            break
+
+        prompt = (
+            _build_trim_prompt(text, actual, ctx.target_words) if gap > 0
+            else _build_extend_prompt(text, actual, ctx.target_words, source)
+        )
+        corrected = clean_narration(await llm.complete(
+            system=_SYSTEM, user=prompt, temperature=0.5,
+        ))
+        generation_pass += 1
+
+        # Une correction invalide (imprononçable, hors personnage, ou une
+        # extension qui a fini par inventer malgré la consigne) est écartée :
+        # on garde le dernier texte fiable plutôt que de dégrader la qualité
+        # pour gagner en précision.
+        if not _is_valid_narration(corrected):
+            break
+        text, actual = corrected, count_words(corrected)
+
+    return text, actual, generation_pass
 
 
 def distribute_target_words(
