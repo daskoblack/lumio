@@ -10,7 +10,10 @@ normalement comme un sous-module et ses imports relatifs internes résolvent
 correctement.
 """
 
+from desktop.app.crash import guard
 from desktop.app.main import main
 
 if __name__ == "__main__":
-    main()
+    # Sans console dans l'app packagée, une exception ici serait totalement
+    # muette : `guard` garantit un message et un journal d'erreur.
+    guard(main)

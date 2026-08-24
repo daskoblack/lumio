@@ -56,4 +56,6 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    from .crash import guard
+
+    guard(main)
