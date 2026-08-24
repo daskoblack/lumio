@@ -8,11 +8,18 @@ page :
    seuil : régénère le texte (même contexte narratif) et resynthétise.
 
 Pour une cible EXPLICITE (`ctx.precise`), la correction est BIDIRECTIONNELLE
-et bornée à `_MAX_AUDIO_ATTEMPTS_PRECISE` tentatives -- le texte a déjà
-convergé en mots (voir scripting._refine_to_target), ici on absorbe surtout
-la variance naturelle du débit réel de la voix. Pour une cible AUTO, la
-correction reste UNIQUE et n'agit qu'en cas de dépassement (comportement
-historique : aucune promesse explicite à tenir sur une section non configurée).
+et bornée à `_MAX_AUDIO_ATTEMPTS_PRECISE` tentatives. Elle vise `target_seconds`
+-- la durée réellement promise à l'utilisateur -- et RETRADUIT ce budget en
+mots avec le débit fraîchement mesuré avant chaque nouvelle tentative.
+
+Piège corrigé ici : comparer l'audio à `target_words / débit_calibré` était
+circulaire, puisque le débit calibré vient de cette même mesure. L'écart
+constaté valait donc toujours ~0%, y compris quand la vidéo faisait 13% de
+moins que la durée demandée (voix edge-tts mesurée à 2,64 mots/s contre 2,3
+supposés). Le contrôle ne détectait rien.
+
+Pour une cible AUTO, la correction reste UNIQUE et n'agit qu'en cas de
+dépassement (aucune promesse explicite à tenir sur une section non configurée).
 
 Sans cible, aucune contrainte : la durée réelle du premier TTS fait foi.
 """
@@ -52,13 +59,19 @@ async def synthesize_slide(
     slide.actual_duration_s = result.duration_s
     voice.recalibrate(result.word_count, result.duration_s)
 
-    target_words = slide.script.word_count_target
-    if target_words is None:
+    if slide.script.word_count_target is None:
         return  # mode auto sans estimation : pas de contrainte
 
-    # Recalculée à chaque tentative avec le débit fraîchement calibré : plus
-    # les pages avancent, plus cette cible en secondes reflète la voix réelle.
-    slide_target_s = target_words / voice.speech_rate_wps
+    # LA cible est en SECONDES : c'est ce que l'utilisateur a demandé.
+    # La comparer à un budget de mots redivisé par le débit observé rendait le
+    # contrôle circulaire -- l'écart mesuré valait toujours ~0%, même quand la
+    # vidéo faisait 13% de moins que promis.
+    slide_target_s = ctx.target_seconds
+    if slide_target_s is None or slide_target_s <= 0:
+        # Cible AUTO : pas de durée promise, on borne seulement l'emballement
+        # à partir du budget de mots estimé.
+        slide_target_s = slide.script.word_count_target / voice.speech_rate_wps
+
     max_attempts = _MAX_AUDIO_ATTEMPTS_PRECISE if ctx.precise else _MAX_AUDIO_ATTEMPTS_AUTO
     attempts = 1
 
@@ -73,6 +86,14 @@ async def synthesize_slide(
             if gap <= deviation_threshold:
                 break
 
+        # Le débit vient d'être recalibré sur cette page : on retraduit la
+        # durée promise en budget de mots AVEC ce débit réel, pour que la
+        # régénération vise vraiment les secondes demandées.
+        if ctx.precise and ctx.target_seconds:
+            ctx.target_words = scripting.words_for_seconds(
+                ctx.target_seconds, voice.speech_rate_wps, ctx.min_words
+            )
+
         slide.script = await scripting.generate_slide_script(llm, ctx, max_passes)
         result = await tts.synthesize(slide.script.text, voice, out_path)
         ctx.warning = result.warning or ctx.warning
@@ -80,7 +101,6 @@ async def synthesize_slide(
         slide.script.audio_duration_s = result.duration_s
         slide.actual_duration_s = result.duration_s
         voice.recalibrate(result.word_count, result.duration_s)
-        slide_target_s = target_words / voice.speech_rate_wps
         attempts += 1
 
     final_gap = (result.duration_s - slide_target_s) / slide_target_s

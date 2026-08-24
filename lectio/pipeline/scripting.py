@@ -103,7 +103,18 @@ class NarrationContext:
     # `slide.source_text()` (voir `dedupe_cumulative_source`). None = aucun
     # chevauchement détecté, on utilise le texte de la page tel quel.
     content_to_narrate: str | None = None
+    # Budget de mots visé pour cette page. DÉRIVÉ de `target_seconds` via le
+    # débit réel de la voix : recalculé après chaque synthèse (le débit se
+    # précise), il n'est donc qu'un moyen, jamais la promesse elle-même.
     target_words: int | None = None
+    # LA PROMESSE faite à l'utilisateur, en SECONDES. C'est la seule grandeur
+    # que la boucle de correction cherche à tenir : comparer l'audio à un
+    # budget de mots recalculé avec le débit observé rendait le contrôle
+    # aveugle (l'écart mesuré valait toujours ~0%, quelle que soit la réalité).
+    target_seconds: float | None = None
+    # Plancher de mots par page, à réappliquer quand `target_words` est
+    # recalculé pendant la synthèse.
+    min_words: int = 70
     # Tolérance de dépassement avant correction. Plus large pour une cible AUTO
     # (simple plafond estimé) que pour une cible EXPLICITE (choisie par l'utilisateur).
     tolerance: float = 0.10
@@ -412,6 +423,54 @@ async def _refine_to_target(
     return text, actual, generation_pass
 
 
+def _page_weights(slides: list[Slide]) -> list[int]:
+    """Poids de répartition d'un budget de section entre ses pages.
+
+    Part de `estimated_narration_words` de chaque page, pour rester cohérent
+    avec le découpage déjà présenté à l'utilisateur.
+    """
+    total_estimated = sum(s.estimated_narration_words for s in slides)
+    if total_estimated > 0:
+        return [s.estimated_narration_words for s in slides]
+    return [1] * len(slides)
+
+
+def distribute_target_seconds(
+    section: Section, slides: list[Slide], target_seconds: float
+) -> list[float]:
+    """Répartit la durée cible d'une section (SECONDES) entre ses pages.
+
+    C'est cette grandeur qui porte la promesse faite à l'utilisateur : le
+    budget de mots n'en est qu'une traduction, via le débit réel de la voix.
+    """
+    if not slides:
+        return []
+
+    weights = _page_weights(slides)
+    total_weight = sum(weights)
+
+    shares: list[float] = []
+    remaining = target_seconds
+    for i, weight in enumerate(weights):
+        if i == len(slides) - 1:
+            shares.append(max(0.0, remaining))  # dernière page : absorbe l'arrondi
+        else:
+            share = target_seconds * weight / total_weight
+            shares.append(share)
+            remaining -= share
+    return shares
+
+
+def words_for_seconds(seconds: float, speech_rate_wps: float, min_words_per_page: int) -> int:
+    """Budget de mots nécessaire pour tenir `seconds` avec le débit RÉEL fourni.
+
+    Le plancher s'applique toujours : sur une section très courte à beaucoup
+    de pages, mieux vaut dépasser un peu la durée demandée (l'écart résiduel
+    est signalé) qu'imposer un texte trop court pour être écrit correctement.
+    """
+    return max(min_words_per_page, round(seconds * speech_rate_wps))
+
+
 def distribute_target_words(
     section: Section, slides: list[Slide], target_words: int, min_words_per_page: int = 70
 ) -> list[int]:
@@ -428,12 +487,7 @@ def distribute_target_words(
     if not slides:
         return []
 
-    total_estimated = sum(s.estimated_narration_words for s in slides)
-    weights = (
-        [s.estimated_narration_words for s in slides]
-        if total_estimated > 0
-        else [1] * len(slides)
-    )
+    weights = _page_weights(slides)
     total_weight = sum(weights)
 
     shares: list[int] = []

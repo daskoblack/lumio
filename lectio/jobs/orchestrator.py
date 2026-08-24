@@ -15,7 +15,7 @@ from ..core import proc
 from ..core.config import Config
 from ..core.exceptions import InvalidStateError, LectioError
 from ..core.models import Course, CourseStatus, Section
-from ..core.timing import deviation, duration_to_words, words_to_duration
+from ..core.timing import deviation, words_to_duration
 from ..pipeline import analysis, extraction, scripting, sectioning, slides as slides_pipeline
 from ..pipeline import subtitles as subtitles_pipeline
 from ..pipeline import synthesis, timeline as timeline_pipeline
@@ -79,6 +79,24 @@ class Orchestrator:
     def store(self) -> JobStore:
         return self._store
 
+    def _voice_profile(self, course: Course) -> VoiceProfile:
+        """Profil de voix du cours, avec son débit calibré par les synthèses
+        déjà réalisées (persisté entre les cours pour une même voix)."""
+        return self._voice_store.load(
+            course.voice_profile_id,
+            course.voice_profile_id,
+            self._config.voice.default_speech_rate_wps,
+        )
+
+    def _voice_rate(self, course: Course) -> float:
+        """Débit RÉEL (mots/s) de la voix de ce cours.
+
+        Toujours préférer cette valeur au défaut de configuration : une voix
+        edge-tts mesurée à 2,64 mots/s contre 2,3 supposés produisait des
+        vidéos systématiquement ~13% trop courtes, sans le moindre signal.
+        """
+        return self._voice_profile(course).speech_rate_wps
+
     @property
     def llm(self) -> LLMProvider:
         if self._llm is None:
@@ -132,8 +150,11 @@ class Orchestrator:
         if structure.get("course_title") and not title:
             course.title = str(structure["course_title"])
 
+        # Débit RÉEL de la voix choisie : l'estimation de durée affichée à
+        # l'utilisateur (curseur « environ 5m30 ») doit refléter sa voix, pas
+        # une constante de configuration.
         course.sections = sectioning.build_sections(
-            structure, slides, self._config.voice.default_speech_rate_wps,
+            structure, slides, self._voice_rate(course),
             self._config.scripting.min_words_per_page,
         )
         course.status = CourseStatus.ANALYZED
@@ -165,7 +186,7 @@ class Orchestrator:
                 f"Scripting impossible depuis l'état {course.status.value}."
             )
 
-        rate = self._config.voice.default_speech_rate_wps
+        rate = self._voice_rate(course)
         max_passes = self._config.scripting.max_generation_passes
 
         plan = self._build_narration_plan(course, rate)
@@ -252,6 +273,7 @@ class Orchestrator:
         # long que prévu sur les sections que l'utilisateur n'avait pas touchées
         # — la cause du "20 minutes demandées, 1 heure obtenue".
         targets: dict[str, int | None] = {}
+        seconds: dict[str, float | None] = {}
         tolerances: dict[str, float] = {}
         explicit_tol = self._config.scripting.word_budget_tolerance
         auto_tol = self._config.scripting.auto_overshoot_tolerance
@@ -264,13 +286,19 @@ class Orchestrator:
                     # à l'analyse) ; `or None` reste un filet pour d'anciens
                     # jobs analysés avant l'introduction du plancher.
                     targets[s.id] = s.estimated_narration_words or None
+                    seconds[s.id] = None  # aucune durée promise en mode Auto
                     tolerances[s.id] = auto_tol
                 continue
-            shares = scripting.distribute_target_words(
-                section, slides, duration_to_words(section.target_duration_s, rate), min_words
+            # La durée demandée est répartie en SECONDES ; le budget de mots
+            # s'en déduit via le débit RÉEL de la voix. Le déduire d'un débit
+            # supposé (2,3 mots/s) alors que la voix parle à 2,64 produisait
+            # une vidéo ~13% trop courte, que le contrôle croyait conforme.
+            shares_s = scripting.distribute_target_seconds(
+                section, slides, section.target_duration_s
             )
-            for s, share in zip(slides, shares):
-                targets[s.id] = share
+            for s, sec in zip(slides, shares_s):
+                seconds[s.id] = sec
+                targets[s.id] = scripting.words_for_seconds(sec, rate, min_words)
                 tolerances[s.id] = explicit_tol
 
         total = len(ordered)
@@ -298,6 +326,8 @@ class Orchestrator:
                 next_slide=ordered[index + 1][1] if index + 1 < total else None,
                 content_to_narrate=content_to_narrate,
                 target_words=targets.get(slide.id),
+                target_seconds=seconds.get(slide.id),
+                min_words=min_words,
                 tolerance=tolerances.get(slide.id, explicit_tol),
                 precise=section.target_duration_s is not None,
             ))
@@ -314,15 +344,11 @@ class Orchestrator:
         audio_dir = self._store.job_dir(job_id) / "audio"
         audio_dir.mkdir(parents=True, exist_ok=True)
 
-        voice = self._voice_store.load(
-            course.voice_profile_id,
-            course.voice_profile_id,
-            self._config.voice.default_speech_rate_wps,
-        )
+        voice = self._voice_profile(course)
         max_passes = self._config.scripting.max_generation_passes
         threshold = self._config.synthesis.deviation_threshold
 
-        plan = self._build_narration_plan(course, self._config.voice.default_speech_rate_wps)
+        plan = self._build_narration_plan(course, voice.speech_rate_wps)
         progress = _ProgressTracker("Enregistrement de la voix", len(plan), on_progress)
 
         failures: list[str] = []
@@ -506,7 +532,7 @@ class Orchestrator:
         if not instruction.strip():
             raise InvalidStateError("La consigne de régénération ne peut pas être vide.")
 
-        rate = self._config.voice.default_speech_rate_wps
+        rate = self._voice_rate(course)
         max_passes = self._config.scripting.max_generation_passes
         threshold = self._config.synthesis.deviation_threshold
         target_slide_ids = set(section.slide_ids)
@@ -518,7 +544,7 @@ class Orchestrator:
 
         audio_dir = self._store.job_dir(job_id) / "audio"
         audio_dir.mkdir(parents=True, exist_ok=True)
-        voice = self._voice_store.load(course.voice_profile_id, course.voice_profile_id, rate)
+        voice = self._voice_profile(course)
 
         previous_text: str | None = None
         summaries: list[str] = []
