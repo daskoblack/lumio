@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { bridge } from '../api/bridge';
 import { ProgressBar } from '../components/ProgressBar';
 import { isApiError, type Course, type ProgressEvent } from '../types';
+import { friendlyError } from '../friendlyError';
 import './player.css';
 
 function formatDuration(totalSeconds: number): string {
@@ -68,7 +69,7 @@ export function Player({
     });
     try {
       const result = await bridge.regenerateSection(courseId, sectionIndex, instruction);
-      if (isApiError(result)) { setError(result.error); return; }
+      if (isApiError(result)) { setError(friendlyError(result.error)); return; }
       onCourseUpdate(result);
       const url = await bridge.videoUrl(courseId);
       setVideoSrc(url);

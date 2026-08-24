@@ -3,6 +3,7 @@ import { bridge } from '../api/bridge';
 import { DurationSlider } from '../components/DurationSlider';
 import { ProgressBar } from '../components/ProgressBar';
 import { isApiError, type Course, type ProgressEvent, type UsageStatus } from '../types';
+import { friendlyError } from '../friendlyError';
 import './sections.css';
 
 type GenerationStage = Exclude<ProgressEvent['stage'], 'regenerate'>;
@@ -86,14 +87,14 @@ export function Sections({
 
   async function commitDuration(sectionIndex: number, seconds: number | null) {
     const result = await bridge.setDurations(course!.id, [sectionIndex], seconds);
-    if (isApiError(result)) { setGenError(result.error); return; }
+    if (isApiError(result)) { setGenError(friendlyError(result.error)); return; }
     onCourseUpdate(result);
   }
 
   async function handleSubtitlesChange(enabled: boolean) {
     setSubtitles(enabled);
     const result = await bridge.setSubtitles(course!.id, enabled);
-    if (isApiError(result)) { setGenError(result.error); return; }
+    if (isApiError(result)) { setGenError(friendlyError(result.error)); return; }
     onCourseUpdate(result);
   }
 
@@ -107,12 +108,12 @@ export function Sections({
       let current = course!;
       if (current.status === 'analyzed') {
         const scripted = await bridge.runScript(current.id);
-        if (isApiError(scripted)) { setGenError(scripted.error); return; }
+        if (isApiError(scripted)) { setGenError(friendlyError(scripted.error)); return; }
         current = scripted;
         onCourseUpdate(current);
       }
       const built = await bridge.runBuild(current.id);
-      if (isApiError(built)) { setGenError(built.error); return; }
+      if (isApiError(built)) { setGenError(friendlyError(built.error)); return; }
       onCourseUpdate(built);
       onFinished();
     } finally {

@@ -24,18 +24,18 @@ def build_timeline(course: Course) -> list[TimelineEntry]:
         for slide in course.section_slides(section):
             if slide.actual_duration_s is None:
                 raise InvalidStateError(
-                    f"Page {slide.source_page} (section {section.index}) sans durée réelle : "
-                    "lance 'synthesize' avant de construire la timeline."
+                    f"La voix n'a pas encore été enregistrée pour la page "
+                    f"{slide.source_page} : relance la génération de ce cours."
                 )
             if not slide.rendered_path:
                 raise InvalidStateError(
-                    f"Page {slide.source_page} non rendue : lance le rendu des slides "
-                    "avant la timeline."
+                    f"L'image de la page {slide.source_page} n'a pas encore été "
+                    "préparée : relance la génération de ce cours."
                 )
             if not slide.script or not slide.script.audio_path:
                 raise InvalidStateError(
-                    f"Page {slide.source_page} sans audio : lance 'synthesize' avant "
-                    "la timeline."
+                    f"Le son de la page {slide.source_page} est manquant : "
+                    "relance la génération de ce cours."
                 )
 
             start = cursor

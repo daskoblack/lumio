@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { bridge } from '../api/bridge';
 import { VoicePreviewButton } from '../components/VoicePreviewButton';
 import { isApiError, type Course, type Voice } from '../types';
+import { friendlyError } from '../friendlyError';
 import './home.css';
 
 export function Home({ onCourseReady }: { onCourseReady: (course: Course) => void }) {
@@ -102,13 +103,3 @@ export function Home({ onCourseReady }: { onCourseReady: (course: Course) => voi
   );
 }
 
-function friendlyError(message: string): string {
-  if (message.includes('Aucun fournisseur') || message.includes('_API_KEY') || message.includes('Clé API')) {
-    return "Aucune intelligence artificielle n'est configurée — va dans Réglages pour coller un code (c'est gratuit).";
-  }
-  if (message.includes('Tous les fournisseurs')) {
-    return "Toutes tes intelligences artificielles ont épuisé leur réserve du jour. "
-      + 'Ajoute un autre code dans Réglages, ou réessaie demain.';
-  }
-  return `Un problème est survenu : ${message}`;
-}

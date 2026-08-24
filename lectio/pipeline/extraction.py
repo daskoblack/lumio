@@ -78,8 +78,9 @@ def extract(pdf_path: str, images_dir: Path) -> tuple[list[Slide], str]:
 
     if total_chars < _MIN_CHARS_PER_PAGE * max(1, len(slides)):
         raise ExtractionError(
-            "Le PDF ne contient pas assez de texte exploitable "
-            "(probablement scanné). L'OCR n'est pas géré dans ce MVP."
+            "Ce PDF ne contient pas assez de texte exploitable : c'est "
+            "probablement un document scanné, ou une suite d'images. Lumio a "
+            "besoin d'un PDF dont le texte peut être sélectionné."
         )
 
     return slides, "\n\n".join(full_text_parts)
