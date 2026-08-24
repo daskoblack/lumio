@@ -15,6 +15,7 @@ page par page (phase 2).
 from __future__ import annotations
 
 from ..core.models import Section, SectionKind, Slide
+from ..core.textutil import dedupe_cumulative_source
 from ..core.timing import count_words, words_to_duration
 
 _VALID_KINDS = {k.value for k in SectionKind}
@@ -128,10 +129,35 @@ def build_sections(
     return sections
 
 
+def _new_content_weights(slides: list[Slide]) -> list[int]:
+    """Poids d'une page = ce qu'elle apporte de NOUVEAU, pas ce qu'elle affiche.
+
+    Sur une diapositive qui se dévoile en plusieurs étapes, chaque page PDF
+    réaffiche tout ce qui précède plus un élément. Peser au prorata du texte
+    affiché faisait donc ENFLER le budget de mots à chaque étape, alors que le
+    contenu neuf, lui, restait constant : sur un cas réel à cinq étapes, la
+    dernière page recevait 134 mots à écrire pour 6 mots de contenu nouveau.
+    Le modèle tenait la consigne en meublant — avec la seule matière à sa
+    disposition, c'est-à-dire les étapes précédentes. D'où les récapitulatifs
+    à répétition, de plus en plus longs.
+    """
+    weights: list[int] = []
+    previous = ""
+    for slide in slides:
+        text = slide.source_text()
+        new_content = dedupe_cumulative_source(previous, text) if previous else text
+        weights.append(max(1, count_words(new_content)))
+        previous = text
+    return weights
+
+
 def _distribute_words_across_slides(
     slides: list[Slide], total_words: int, speech_rate_wps: float, min_words_per_page: int = 70
 ) -> None:
-    """Répartit le budget de mots d'une section entre ses slides (prorata du texte source).
+    """Répartit le budget de mots d'une section entre ses slides.
+
+    Le prorata porte sur le contenu réellement NOUVEAU de chaque page (voir
+    `_new_content_weights`), et non sur le texte affiché.
 
     Chaque page reçoit AU MOINS `min_words_per_page`, même si le prorata ou un
     total sous-estimé lui donnerait moins : en dessous, aucune narration
@@ -140,7 +166,7 @@ def _distribute_words_across_slides(
     if not slides:
         return
 
-    weights = [max(1, count_words(s.source_text())) for s in slides]
+    weights = _new_content_weights(slides)
     total_weight = sum(weights)
 
     remaining = total_words

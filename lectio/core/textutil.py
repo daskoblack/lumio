@@ -8,6 +8,7 @@ le pipeline. On vérifie donc en amont, là où le diagnostic est encore clair.
 
 from __future__ import annotations
 
+import difflib
 import re
 
 
@@ -74,3 +75,43 @@ def clean_narration(text: str) -> str:
             cleaned = lines[1].strip()
 
     return cleaned.strip()
+
+
+# Seuils de détection du texte source cumulatif (frises/animations en
+# construction progressive : chaque page PDF réaffiche tout ce qui a déjà été
+# révélé + un élément de plus). En dessous, on ne touche à rien : mieux vaut
+# rater un vrai doublon que couper du contenu légitime par erreur.
+# Vérifié en conditions réelles : une première phase de frise peut être
+# courte (« Phase 1 : origines. » ~20 caractères) ; un seuil trop haut la
+# laissait passer sans déduplication. 15 reste sûr contre un simple en-tête
+# partagé (« Chapitre 3 », 10 caractères, voir test dédié).
+_DEDUPE_MIN_OVERLAP_CHARS = 15
+_DEDUPE_MIN_SIMILARITY = 0.85
+
+
+def dedupe_cumulative_source(previous_source: str, current_source: str) -> str:
+    """Retire, du texte source de CETTE page, ce qui répète déjà la page
+    précédente presque mot pour mot en début de texte.
+
+    Cas visé : une frise en 5 phases exportée en 'build' PowerPoint, où la
+    page 3 contient tout le texte de la page 2 (elle-même contenant celui de
+    la page 1) suivi de la nouvelle phase. Sans ça, on demande au modèle
+    d'« expliquer le contenu de cette page », qui grossit à chaque page —
+    un modèle fidèle à la consigne récapitule donc de plus en plus.
+
+    Ne touche JAMAIS aux images rendues (la frise complète doit rester
+    visible à l'écran) : uniquement le texte envoyé au modèle pour savoir
+    quoi raconter.
+    """
+    prev_norm = " ".join(previous_source.split())
+    curr_norm = " ".join(current_source.split())
+    if len(prev_norm) < _DEDUPE_MIN_OVERLAP_CHARS or not curr_norm or prev_norm == curr_norm:
+        return current_source
+
+    prefix_len = min(len(prev_norm), len(curr_norm))
+    similarity = difflib.SequenceMatcher(None, prev_norm, curr_norm[:prefix_len]).ratio()
+    if similarity < _DEDUPE_MIN_SIMILARITY:
+        return current_source  # pas un vrai chevauchement, juste une coïncidence
+
+    remainder = curr_norm[prefix_len:].strip()
+    return remainder or current_source  # rien de nouveau -> on garde tout, par sécurité

@@ -86,3 +86,63 @@ async def test_premiere_page_de_section_non_touchee(tmp_path):
 
     premier_bloc = llm.prompts[0].split("Contenu de CETTE page à expliquer :")[1]
     assert "Phase 1 :" in premier_bloc
+
+
+# --- Deux fuites qui rendaient la deduplication inoperante ------------------
+
+@pytest.mark.asyncio
+async def test_l_apercu_de_la_page_suivante_est_deduplique(tmp_path):
+    """L'aperçu de la page suivante remettait TOUTES les étapes déjà traitées
+    sous les yeux du modèle, alors même que le contenu de la page courante,
+    lui, était bien réduit à sa nouveauté. Le modèle les récapitulait donc
+    malgré la consigne de ne pas y revenir."""
+    orch, job_id = _frise_course(tmp_path)
+    llm: _CapturingLLM = orch.llm  # type: ignore[assignment]
+
+    await orch.run_scripting(job_id)
+
+    for index, prompt in enumerate(llm.prompts[:-1], start=1):
+        apercu = prompt.split("Aperçu de la page suivante")[1].split("Contenu de CETTE page")[0]
+        for phase in range(1, index + 1):
+            assert f"Phase {phase} :" not in apercu, (
+                f"page {index} : l'aperçu réaffiche la phase {phase}, déjà traitée"
+            )
+
+
+def test_le_budget_de_mots_n_enfle_pas_avec_le_texte_cumule():
+    """Le budget était réparti au prorata du texte AFFICHÉ, qui grossit à
+    chaque étape alors que le contenu neuf reste constant : sur un cas réel,
+    la dernière page recevait 134 mots à écrire pour 6 mots de nouveauté. Le
+    modèle tenait la consigne en meublant avec les étapes précédentes.
+
+    Passe par `build_sections`, comme le vrai pipeline : c'est là que la
+    répartition est calculée.
+    """
+    from lectio.pipeline.sectioning import build_sections
+
+    titre = "Les etapes de la photosynthese"
+    etapes = [
+        "Etape 1 : absorption de la lumiere par la chlorophylle.",
+        "Etape 2 : dissociation des molecules d eau.",
+        "Etape 3 : liberation du dioxygene.",
+        "Etape 4 : fixation du dioxyde de carbone.",
+        "Etape 5 : production de glucose.",
+    ]
+    slides = [
+        Slide(index=i, source_page=i + 1, title="p",
+              content_blocks=[ContentBlock(kind="text", text=f"{titre} " + " ".join(etapes[:i + 1]))])
+        for i in range(5)
+    ]
+    structure = {"sections": [{
+        "title": "Les etapes", "kind": "concept",
+        "source_pages": [1, 2, 3, 4, 5], "estimated_words_per_page": 90,
+    }]}
+    build_sections(structure, slides, speech_rate_wps=2.3, min_words_per_page=70)
+
+    budgets = [s.estimated_narration_words for s in slides]
+    # Pages 2 a 5 : chacune n'apporte qu'une etape. Leur budget doit rester
+    # stable, jamais croitre page apres page.
+    suivantes = budgets[1:]
+    assert max(suivantes) - min(suivantes) <= 15, (
+        f"le budget enfle encore d'une page a l'autre : {budgets}"
+    )
