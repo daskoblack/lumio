@@ -154,6 +154,9 @@ class Api:
         settings_store.apply_to_environment(updated)
         if updated.get("voice_id"):
             self._config.providers.tts.voice = updated["voice_id"]
+        # Toujours réappliqué, y compris vide : c'est ainsi que l'utilisateur
+        # revient au choix automatique après avoir fixé un modèle.
+        self._config.providers.llm.preferred = updated.get("llm_model", "")
 
         # Les fournisseurs déjà construits ont capturé les anciennes clés :
         # on repart d'un orchestrateur neuf pour que les nouvelles s'appliquent
@@ -172,6 +175,23 @@ class Api:
         except LLMError as exc:
             return {"configured": [], "error": str(exc)}
         return {"configured": getattr(chain, "available_labels", []), "error": None}
+
+    @_safe(list)
+    def list_models(self) -> list[dict]:
+        """Modèles proposables à l'utilisateur : ceux dont la clé est saisie.
+
+        Inutile de proposer un modèle qu'on ne peut pas appeler : la liste est
+        filtrée sur les fournisseurs réellement configurés.
+        """
+        return [
+            {
+                "id": candidate.identifier,
+                "label": candidate.label or candidate.identifier,
+                "provider": candidate.name,
+            }
+            for candidate in self._config.providers.llm.candidates()
+            if Config.api_key_for(candidate.name)
+        ]
 
     @_safe(None)
     def usage_status(self, job_id: str | None = None) -> dict:

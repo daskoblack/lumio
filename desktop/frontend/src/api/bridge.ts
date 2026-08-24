@@ -2,7 +2,7 @@
 // pywebview injecte `window.pywebview` un peu après le chargement de la page :
 // `ready()` attend cet événement avant le premier appel.
 
-import type { ApiError, Course, LlmStatus, ProgressEvent, Settings, UsageStatus, Voice } from '../types';
+import type { ApiError, Course, LlmModel, LlmStatus, ProgressEvent, Settings, UsageStatus, Voice } from '../types';
 
 declare global {
   interface Window {
@@ -21,6 +21,7 @@ interface PywebviewApi {
   get_settings(): Promise<Settings>;
   save_settings(updates: Record<string, string> | null, voice_id: string | null): Promise<Settings>;
   llm_status(): Promise<LlmStatus>;
+  list_models(): Promise<LlmModel[]>;
   usage_status(job_id: string | null): Promise<UsageStatus>;
   list_voices(): Promise<Voice[]>;
   preview_voice(voice_id: string): Promise<PreviewVoiceResult>;
@@ -63,6 +64,7 @@ export const bridge = {
   saveSettings: async (updates: Record<string, string> | null, voiceId: string | null) =>
     (await api()).save_settings(updates, voiceId),
   llmStatus: async () => (await api()).llm_status(),
+  listModels: async () => (await api()).list_models(),
   usageStatus: async (jobId: string | null = null) => (await api()).usage_status(jobId),
   listVoices: async () => (await api()).list_voices(),
   previewVoice: async (voiceId: string) => (await api()).preview_voice(voiceId),

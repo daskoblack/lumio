@@ -45,6 +45,14 @@ class LLMCandidate(BaseModel):
     name: str                    # groq | cerebras | gemini | mistral
     model: str
     min_interval_s: float = 2.0  # espacement propre au fournisseur (limites RPM ≠)
+    # Intitulé montré à l'utilisateur dans le sélecteur de modèle. Vide = on
+    # retombe sur l'identifiant technique, moins parlant mais jamais absent.
+    label: str = ""
+
+    @property
+    def identifier(self) -> str:
+        """Identifiant stable, utilisé comme valeur de préférence."""
+        return f"{self.name}/{self.model}"
 
 
 def _default_fallbacks() -> list[LLMCandidate]:
@@ -56,22 +64,40 @@ def _default_fallbacks() -> list[LLMCandidate]:
     """
     return [
         # Même fournisseur, modèle plus léger : consomme bien moins de tokens.
-        LLMCandidate(name="groq", model="openai/gpt-oss-20b"),
+        LLMCandidate(name="groq", model="openai/gpt-oss-20b",
+                     label="Groq — plus léger, consomme moins de réserve"),
         # Puis d'autres comptes gratuits, avec leurs propres quotas quotidiens.
-        LLMCandidate(name="cerebras", model="gpt-oss-120b"),
+        LLMCandidate(name="cerebras", model="gpt-oss-120b",
+                     label="Cerebras — grande réserve quotidienne"),
         # Gemini gratuit est limité à ~10 requêtes/min : espacement plus large.
-        LLMCandidate(name="gemini", model="gemini-2.5-flash-lite", min_interval_s=6.5),
-        LLMCandidate(name="mistral", model="mistral-small-latest"),
+        LLMCandidate(name="gemini", model="gemini-2.5-flash-lite", min_interval_s=6.5,
+                     label="Gemini — très grande réserve, un peu plus lent"),
+        LLMCandidate(name="mistral", model="mistral-small-latest",
+                     label="Mistral — français"),
     ]
 
 
 class LLMConfig(BaseModel):
     name: str = "groq"
     model: str = "openai/gpt-oss-120b"
+    label: str = "Groq — le plus rapide (recommandé)"
     temperature: float = 0.4
     max_document_chars: int = 24000
     min_interval_s: float = 2.0  # espacement minimal entre appels (évite les 429 Groq)
     fallbacks: list[LLMCandidate] = Field(default_factory=_default_fallbacks)
+    # Modèle choisi par l'utilisateur (identifiant « fournisseur/modèle »).
+    # Vide = ordre par défaut. Le modèle choisi passe EN TÊTE ; les autres
+    # restent derrière en secours, sinon un quota épuisé stopperait net la
+    # génération — le problème que la chaîne de repli avait résolu.
+    preferred: str = ""
+
+    def candidates(self) -> list[LLMCandidate]:
+        """Le modèle principal puis les replis, dans l'ordre de la config."""
+        principal = LLMCandidate(
+            name=self.name, model=self.model,
+            min_interval_s=self.min_interval_s, label=self.label,
+        )
+        return [principal, *self.fallbacks]
 
 
 class TTSConfig(BaseModel):

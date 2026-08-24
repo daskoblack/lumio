@@ -24,6 +24,9 @@ API_KEY_FIELDS = {name: f"{name}_api_key" for name in LLM_ENV_KEYS}
 _DEFAULTS: dict[str, str] = {
     **{field: "" for field in API_KEY_FIELDS.values()},
     "voice_id": "fr-FR-DeniseNeural",
+    # Modèle d'IA choisi par l'utilisateur (« fournisseur/modèle »).
+    # Vide = Lumio décide, comme avant l'introduction du choix.
+    "llm_model": "",
 }
 
 

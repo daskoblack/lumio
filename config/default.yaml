@@ -12,19 +12,25 @@ providers:
     # Un maillon dont la clé API n'est pas renseignée est simplement ignoré.
     name: groq
     model: openai/gpt-oss-120b       # modèle principal (le plus capable)
+    label: "Groq — le plus rapide (recommandé)"
+    preferred: ""                    # modèle choisi dans Réglages ; vide = ordre par défaut
     temperature: 0.4
     max_document_chars: 24000        # budget de l'analyse (extrait de CHAQUE page)
     min_interval_s: 2.0              # espacement minimal entre appels (évite les 429)
     fallbacks:
       - name: groq                   # même compte, modèle plus léger
         model: openai/gpt-oss-20b
+        label: "Groq — plus léger, consomme moins de réserve"
       - name: cerebras               # 1 000 000 tokens/jour gratuits
         model: gpt-oss-120b
+        label: "Cerebras — grande réserve quotidienne"
       - name: gemini                 # ~10 requêtes/min en gratuit -> espacement plus large
         model: gemini-2.5-flash-lite
         min_interval_s: 6.5
+        label: "Gemini — très grande réserve, un peu plus lent"
       - name: mistral
         model: mistral-small-latest
+        label: "Mistral — français"
 
   tts:
     # Groq (PlayAI) ne supporte pas le français : edge-tts (gratuit, sans clé,

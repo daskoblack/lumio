@@ -70,12 +70,22 @@ export interface Voice {
 export const LLM_PROVIDERS = ['groq', 'cerebras', 'gemini', 'mistral'] as const;
 export type LlmProvider = (typeof LLM_PROVIDERS)[number];
 
+/** Un modèle d'IA proposable dans les Réglages. */
+export interface LlmModel {
+  /** Identifiant « fournisseur/modèle », valeur du réglage. */
+  id: string;
+  label: string;
+  provider: string;
+}
+
 export interface Settings {
   groq_api_key: string;
   cerebras_api_key: string;
   gemini_api_key: string;
   mistral_api_key: string;
   voice_id: string;
+  /** Identifiant du modèle choisi ; vide = Lumio décide. */
+  llm_model: string;
 }
 
 export interface LlmStatus {

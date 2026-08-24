@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { bridge } from '../api/bridge';
 import { VoicePreviewButton } from '../components/VoicePreviewButton';
-import { LLM_PROVIDERS, type LlmProvider, type LlmStatus, type UsageStatus, type Voice } from '../types';
+import { LLM_PROVIDERS, type LlmModel, type LlmProvider, type LlmStatus, type UsageStatus, type Voice } from '../types';
 import './settings.css';
 
 /** Ce que l'utilisateur doit savoir sur chaque fournisseur, sans jargon. */
@@ -35,6 +35,8 @@ export function Settings() {
   const [shown, setShown] = useState<Record<string, boolean>>({});
   const [status, setStatus] = useState<LlmStatus | null>(null);
   const [usage, setUsage] = useState<UsageStatus | null>(null);
+  const [models, setModels] = useState<LlmModel[]>([]);
+  const [chosenModel, setChosenModel] = useState('');
   const [saved, setSaved] = useState(false);
 
   useEffect(() => {
@@ -43,18 +45,22 @@ export function Settings() {
         LLM_PROVIDERS.map((p) => [p, (s as unknown as Record<string, string>)[`${p}_api_key`] ?? '']),
       ));
       setVoiceId(s.voice_id);
+      setChosenModel(s.llm_model ?? '');
     });
     bridge.listVoices().then(setVoices);
     bridge.llmStatus().then(setStatus);
     bridge.usageStatus().then(setUsage).catch(() => setUsage(null));
+    bridge.listModels().then(setModels).catch(() => setModels([]));
   }, []);
 
   async function handleSave() {
     const updates: Record<string, string> = {};
     for (const p of LLM_PROVIDERS) updates[`${p}_api_key`] = keys[p] ?? '';
+    updates.llm_model = chosenModel;
     await bridge.saveSettings(updates, voiceId);
     setStatus(await bridge.llmStatus());
     setUsage(await bridge.usageStatus().catch(() => null));
+    setModels(await bridge.listModels().catch(() => []));
     setSaved(true);
     setTimeout(() => setSaved(false), 2500);
   }
@@ -147,6 +153,35 @@ export function Settings() {
             </div>
           )}
         </div>
+
+        {models.length > 0 && (
+          <div className="card field-card">
+            <label htmlFor="model-select">Intelligence utilisée pour écrire</label>
+            <p className="hint">
+              Laisse « Automatique » et Lumio choisit la meilleure disponible. Tu peux
+              aussi en imposer une : elle sera alors toujours essayée en premier.
+            </p>
+            <div className="select-fake inset">
+              <select
+                id="model-select"
+                value={chosenModel}
+                onChange={(e) => setChosenModel(e.target.value)}
+              >
+                <option value="">Automatique (recommandé)</option>
+                {models.map((m) => (
+                  <option key={m.id} value={m.id}>{m.label}</option>
+                ))}
+              </select>
+            </div>
+            <p className="usage-hint">
+              {chosenModel
+                ? "Si celle-ci épuise sa réserve en cours de route, Lumio poursuit avec "
+                  + 'une autre plutôt que de s\'arrêter — le changement est alors signalé '
+                  + 'sur la vidéo terminée.'
+                : 'Seules les intelligences dont tu as renseigné le code apparaissent ici.'}
+            </p>
+          </div>
+        )}
 
         <div className="card field-card">
           <label htmlFor="voice-select">Voix</label>

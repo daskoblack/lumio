@@ -47,14 +47,15 @@ def build_llm(config: Config) -> LLMProvider:
     qu'une seule, le comportement est identique à avant.
     """
     llm_config = config.providers.llm
-    wanted: list[LLMCandidate] = [
-        LLMCandidate(
-            name=llm_config.name,
-            model=llm_config.model,
-            min_interval_s=llm_config.min_interval_s,
-        ),
-        *llm_config.fallbacks,
-    ]
+    wanted: list[LLMCandidate] = llm_config.candidates()
+
+    # Modèle choisi par l'utilisateur : il passe en TÊTE, les autres restent
+    # derrière en secours. Le retirer complètement rendrait une génération
+    # dépendante d'un seul quota, alors que c'est précisément ce que la chaîne
+    # de repli évite. La bascule éventuelle est signalée dans le rapport.
+    preferred = llm_config.preferred.strip()
+    if preferred:
+        wanted.sort(key=lambda candidate: candidate.identifier != preferred)
 
     candidates: list[tuple[str, LLMProvider]] = []
     seen: set[tuple[str, str]] = set()
