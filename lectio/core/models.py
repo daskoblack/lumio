@@ -16,6 +16,7 @@ enchaînement fluide plutôt qu'un découpage haché page par page.
 from __future__ import annotations
 
 import uuid
+from datetime import datetime
 from enum import Enum
 
 from pydantic import BaseModel, Field
@@ -123,6 +124,12 @@ class Course(BaseModel):
     id: str = Field(default_factory=_new_id)
     title: str
     source_pdf: str
+    # Date de création, posée explicitement à la création du cours. None pour
+    # les cours produits avant l'introduction de ce champ : le classement
+    # retombe alors sur la date du fichier (voir JobStore.list_jobs). Pas de
+    # `default_factory` ici, qui daterait « maintenant » un ancien cours à
+    # chaque relecture et ruinerait justement le tri chronologique.
+    created_at: datetime | None = None
     language: str = "fr"
     voice_profile_id: str = "default"
     status: CourseStatus = CourseStatus.CREATED

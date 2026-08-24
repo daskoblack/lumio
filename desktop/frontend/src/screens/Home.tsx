@@ -15,7 +15,7 @@ export function Home({ onCourseReady }: { onCourseReady: (course: Course) => voi
     bridge.getSettings().then((s) => setVoiceId(s.voice_id));
     bridge.listVoices().then(setVoices);
     bridge.listJobs().then((jobs) => {
-      if (jobs.length) setRecentJob(jobs[jobs.length - 1]);
+      if (jobs.length) setRecentJob(jobs[0]);  // le plus récent en tête
     });
   }, []);
 

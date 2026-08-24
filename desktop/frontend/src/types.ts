@@ -48,6 +48,8 @@ export interface Course {
   id: string;
   title: string;
   source_pdf: string;
+  /** ISO 8601, ou null pour les cours créés avant ce champ. */
+  created_at: string | null;
   language: string;
   voice_profile_id: string;
   status: CourseStatus;

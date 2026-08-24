@@ -8,6 +8,7 @@ Pas de script monolithique : chaque étape est indépendante et rejouable.
 from __future__ import annotations
 
 import shutil
+from datetime import datetime
 from pathlib import Path
 from typing import Callable
 
@@ -128,6 +129,7 @@ class Orchestrator:
         course = Course(
             title=title or Path(pdf_path).stem,
             source_pdf=str(Path(pdf_path).resolve()),
+            created_at=datetime.now(),  # sert au classement chronologique
             language=self._config.language,
             # Le profil de voix EST l'identifiant de la voix : la calibration du
             # débit reste ainsi propre à chaque voix (des voix différentes ont

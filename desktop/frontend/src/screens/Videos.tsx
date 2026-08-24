@@ -63,7 +63,8 @@ export function Videos({
   const [jobs, setJobs] = useState<Course[] | null>(null);
 
   useEffect(() => {
-    bridge.listJobs().then((list) => setJobs([...list].reverse()));
+    // Déjà triés du plus récent au plus ancien côté Python.
+    bridge.listJobs().then(setJobs);
   }, []);
 
   function updateJob(updated: Course) {

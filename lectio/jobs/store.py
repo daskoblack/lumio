@@ -6,6 +6,7 @@ puis la reprise. Un job = un dossier workspace/{id}/.
 
 from __future__ import annotations
 
+from datetime import datetime
 from pathlib import Path
 
 from ..core.exceptions import JobNotFoundError
@@ -41,11 +42,33 @@ class JobStore:
         return Course.model_validate_json(path.read_text(encoding="utf-8"))
 
     def list_jobs(self) -> list[Course]:
-        jobs: list[Course] = []
+        """Cours du plus RÉCENT au plus ancien.
+
+        Le tri portait auparavant sur le nom du dossier, c'est-à-dire un
+        identifiant aléatoire : l'ordre affiché n'avait donc aucun sens, et le
+        « dernier cours » de l'accueil désignait un cours au hasard.
+
+        Les cours créés avant l'ajout de `created_at` n'en ont pas : on
+        retombe sur la date de leur fichier, ce qui reste chronologiquement
+        juste.
+        """
+        jobs: list[tuple[datetime, Course]] = []
         for child in sorted(self._workspace.iterdir() if self._workspace.exists() else []):
-            if (child / "job.json").exists():
-                try:
-                    jobs.append(self.load(child.name))
-                except Exception:  # noqa: BLE001 - job corrompu ignoré dans la liste
-                    continue
-        return jobs
+            job_file = child / "job.json"
+            if not job_file.exists():
+                continue
+            try:
+                course = self.load(child.name)
+            except Exception:  # noqa: BLE001 - job corrompu ignoré dans la liste
+                continue
+            jobs.append((course.created_at or self._file_date(job_file), course))
+
+        jobs.sort(key=lambda pair: pair[0], reverse=True)
+        return [course for _, course in jobs]
+
+    @staticmethod
+    def _file_date(path: Path) -> datetime:
+        try:
+            return datetime.fromtimestamp(path.stat().st_mtime)
+        except OSError:
+            return datetime.min
