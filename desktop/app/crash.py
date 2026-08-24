@@ -59,12 +59,41 @@ def write_report(exc: BaseException) -> Path | None:
 
 
 def show_dialog(message: str) -> None:
-    """Boîte de dialogue native. Sans effet hors Windows (CLI, tests, CI)."""
+    """Boîte de dialogue native. Sans effet hors Windows (CLI, tests, CI).
+
+    Les types d'arguments sont déclarés explicitement : sans cela, ctypes
+    devine la signature, et l'appel échoue silencieusement dans l'application
+    packagée (constaté en conditions réelles — le journal était bien écrit,
+    mais aucune fenêtre n'apparaissait).
+    """
     if sys.platform != "win32":
         return
     try:
-        ctypes.windll.user32.MessageBoxW(None, message, _DIALOG_TITLE, _MB_ICON_ERROR)
-    except Exception:  # noqa: BLE001 - jamais bloquer sur l'affichage lui-même
+        message_box = ctypes.WinDLL("user32", use_last_error=True).MessageBoxW
+        message_box.argtypes = [
+            ctypes.c_void_p, ctypes.c_wchar_p, ctypes.c_wchar_p, ctypes.c_uint
+        ]
+        message_box.restype = ctypes.c_int
+        retour = message_box(None, message, _DIALOG_TITLE, _MB_ICON_ERROR)
+        if retour == 0:  # 0 = la fenêtre n'a pas pu être créée
+            _append_line(
+                f"[dialogue non affiché : MessageBoxW a renvoyé 0, "
+                f"code Windows {ctypes.get_last_error()}]"
+            )
+    except Exception as exc:  # noqa: BLE001 - jamais bloquer sur l'affichage lui-même
+        # L'utilisateur ne verra rien : au moins, la raison est tracée pour
+        # que le journal reste exploitable.
+        _append_line(f"[dialogue non affiché : {type(exc).__name__} — {exc}]")
+
+
+def _append_line(texte: str) -> None:
+    """Ajoute une ligne au journal, sans jamais lever d'exception."""
+    try:
+        destination = log_path()
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        with destination.open("a", encoding="utf-8") as fichier:
+            fichier.write(f"{texte}\n")
+    except Exception:  # noqa: BLE001
         pass
 
 

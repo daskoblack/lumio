@@ -103,6 +103,30 @@ def test_le_message_reste_utile_sans_rapport(monkeypatch):
     assert "n'a pas pu être enregistré" in notify.messages[0]
 
 
+def test_un_dialogue_impossible_est_trace_dans_le_journal(journal, monkeypatch):
+    """Si la fenêtre ne peut pas s'afficher, l'utilisateur ne verra rien : la
+    raison doit au moins rester dans le journal, sinon le diagnostic est perdu.
+
+    Ce cas s'est produit en conditions réelles : sans types d'arguments
+    déclarés, l'appel Windows échouait silencieusement dans l'app packagée.
+    """
+    monkeypatch.setattr(crash.sys, "platform", "win32")
+
+    def _user32_casse(*args, **kwargs):
+        raise OSError("user32 indisponible")
+
+    monkeypatch.setattr(crash.ctypes, "WinDLL", _user32_casse)
+    crash.show_dialog("peu importe")
+
+    assert "dialogue non affiché" in journal.read_text(encoding="utf-8")
+
+
+def test_hors_windows_le_dialogue_est_ignore_sans_bruit(journal, monkeypatch):
+    monkeypatch.setattr(crash.sys, "platform", "linux")
+    crash.show_dialog("peu importe")
+    assert not journal.exists()
+
+
 # --- Garde du point d'entrée ----------------------------------------------
 
 def test_un_demarrage_normal_passe_sans_message(journal):
