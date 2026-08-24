@@ -3,12 +3,25 @@
 Cette étape ne fait QUE l'appel LLM et le parsing. La transformation en objets
 Section (et le calcul des durées) est faite par `sectioning.py`, pour garder
 la séparation pédagogie / conversion.
+
+Contrainte de fenêtre : le document doit tenir dans un budget de caractères.
+Le couper à la fin faisait disparaître les dernières pages de l'analyse — sur
+un cours de 40 pages denses, la moitié était découpée en sections, dotée d'un
+contexte pédagogique et d'une durée SANS QUE LE MODÈLE N'AIT VU SON CONTENU.
+On envoie donc un EXTRAIT de chaque page plutôt que l'intégralité des
+premières : le document entier est représenté, à budget identique.
 """
 
 from __future__ import annotations
 
 from ..core.jsonutil import parse_json
 from ..providers.llm.base import LLMProvider
+
+# En dessous, un extrait ne dit plus rien d'utile sur le sujet d'une page.
+# Un document assez long pour descendre sous ce seuil garde ce minimum : le
+# budget total est alors légèrement dépassé, ce qui reste préférable à un
+# découpage à l'aveugle.
+_MIN_EXCERPT_CHARS = 200
 
 _SYSTEM = """Tu es un concepteur pédagogique. On te donne le texte brut d'un \
 support de cours (PDF), page par page. Tu dois le découper en sections \
@@ -51,21 +64,56 @@ Texte du cours :
 {document}"""
 
 
-async def analyze_structure(
-    llm: LLMProvider, document_text: str, max_chars: int
-) -> tuple[dict, bool]:
-    """Retourne (structure_json, truncated).
+def build_analysis_document(
+    pages: list[tuple[int, str]], max_chars: int
+) -> tuple[str, bool]:
+    """Assemble le texte envoyé à l'analyse. Retourne (document, abrégé).
 
-    `truncated` indique si le texte a dû être coupé pour tenir dans la fenêtre.
+    CHAQUE page y figure toujours, même sur un document très long : si le
+    texte intégral ne tient pas dans `max_chars`, on prend un extrait de
+    début de chaque page plutôt que d'abandonner les dernières. Le modèle
+    connaît ainsi le sujet de toutes les pages au moment de découper en
+    sections, d'écrire leur contexte et d'estimer les durées.
+
+    `abrégé` vaut True quand les pages ont dû être extraites (utile pour en
+    informer l'utilisateur), False quand le document a été envoyé entier.
     """
-    truncated = len(document_text) > max_chars
-    doc = document_text[:max_chars] if truncated else document_text
+    if not pages:
+        return "", False
+
+    # Par page : le marqueur, son saut de ligne, le séparateur « \n\n » qui
+    # la relie à la suivante, et le « … » ajouté quand la page est abrégée.
+    overhead = sum(len(f"=== PAGE {number} ===\n\n\n…") for number, _ in pages)
+    full_body = sum(len(text) for _, text in pages)
+    if overhead + full_body <= max_chars:
+        document = "\n\n".join(f"=== PAGE {n} ===\n{t}" for n, t in pages)
+        return document, False
+
+    budget = max(_MIN_EXCERPT_CHARS, (max_chars - overhead) // len(pages))
+    parts = []
+    for number, text in pages:
+        excerpt = text[:budget].rstrip()
+        if len(text) > budget:
+            excerpt += "…"
+        parts.append(f"=== PAGE {number} ===\n{excerpt}")
+    return "\n\n".join(parts), True
+
+
+async def analyze_structure(
+    llm: LLMProvider, pages: list[tuple[int, str]], max_chars: int
+) -> tuple[dict, bool]:
+    """Retourne (structure_json, abrégé).
+
+    `pages` est la liste (numéro de page, texte) dans l'ordre du document.
+    `abrégé` indique que seul un extrait de chaque page a pu être envoyé.
+    """
+    document, shortened = build_analysis_document(pages, max_chars)
 
     raw = await llm.complete(
         system=_SYSTEM,
-        user=_USER_TEMPLATE.format(document=doc),
+        user=_USER_TEMPLATE.format(document=document),
         json_mode=True,
         temperature=0.3,
     )
     data = parse_json(raw)
-    return data, truncated
+    return data, shortened

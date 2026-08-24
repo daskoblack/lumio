@@ -160,8 +160,9 @@ export function Sections({
 
       {course.truncated && (
         <p className="warning-banner">
-          Ce document est long : l'analyse initiale n'a vu qu'une partie du texte.
-          Les durées estimées des dernières parties peuvent être moins précises.
+          Ce document est long : pour le découper en parties, Lumio s'est appuyé sur
+          un extrait de chaque page. Toutes tes pages sont bien prises en compte, et
+          la narration de chacune utilise son contenu complet.
         </p>
       )}
 

@@ -136,15 +136,18 @@ class Orchestrator:
         )
         self._store.save(course)  # crée le dossier du job tôt
 
-        slides, document_text = extraction.extract(
+        slides, _document_text = extraction.extract(
             pdf_path, self._store.images_dir(course.id)
         )
         course.slides = slides
         course.status = CourseStatus.EXTRACTED
         self._store.save(course)
 
+        # Page par page (et non le texte concaténé) : l'analyse peut ainsi
+        # garantir que CHAQUE page est représentée, même sur un long document.
+        pages = [(slide.source_page, slide.source_text()) for slide in slides]
         structure, truncated = await analysis.analyze_structure(
-            self.llm, document_text, self._config.providers.llm.max_document_chars
+            self.llm, pages, self._config.providers.llm.max_document_chars
         )
         course.truncated = truncated
         if structure.get("course_title") and not title:
@@ -248,8 +251,9 @@ class Orchestrator:
         if course.truncated:
             failures.insert(
                 0,
-                "document long : l'analyse initiale n'a vu qu'une partie du texte, "
-                "les estimations de durée peuvent être moins précises en fin de cours.",
+                "document long : le découpage en parties s'est appuyé sur un extrait "
+                "de chaque page plutôt que sur leur texte complet. Chaque page a bien "
+                "été prise en compte, et sa narration utilise son contenu intégral.",
             )
         course.degraded_pages = failures
         course.status = CourseStatus.SCRIPTED
