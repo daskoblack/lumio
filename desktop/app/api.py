@@ -118,6 +118,39 @@ class Api:
             return {"configured": [], "error": str(exc)}
         return {"configured": getattr(chain, "available_labels", []), "error": None}
 
+    def usage_status(self, job_id: str | None = None) -> dict:
+        """Réserve d'IA gratuite : ce qui a déjà été consommé aujourd'hui, la
+        capacité totale selon le nombre de clés, et le coût attendu d'un cours.
+
+        Permet d'avertir AVANT une longue génération, au lieu de découvrir la
+        limite en cours de route.
+        """
+        from lectio.core.usage import UsageTracker, estimate_course_tokens
+
+        tracker = UsageTracker(self._config.workspace_path / "usage.json")
+        providers = self.llm_status().get("configured", [])
+        capacity = max(1, len(providers)) * tracker.daily_limit
+
+        estimate = None
+        if job_id:
+            try:
+                course = self._orchestrator().store.load(job_id)
+                precise = any(s.target_duration_s is not None for s in course.sections)
+                estimate = estimate_course_tokens(len(course.slides), precise)
+            except LectioError:
+                estimate = None
+
+        used = tracker.today_total()
+        return {
+            "used_today": used,
+            "capacity": capacity,
+            "per_provider_limit": tracker.daily_limit,
+            "providers": providers,
+            "course_estimate": estimate,
+            # L'écran de planification s'en sert pour prévenir avant de lancer.
+            "fits": None if estimate is None else (used + estimate) <= capacity,
+        }
+
     def list_voices(self) -> list[dict]:
         import edge_tts
 

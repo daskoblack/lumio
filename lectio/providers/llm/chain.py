@@ -13,6 +13,7 @@ session — inutile de re-tenter à chaque page.
 from __future__ import annotations
 
 from ...core.exceptions import LLMError
+from ...core.usage import UsageTracker, estimate_tokens
 from .base import LLMProvider
 from .errors import QuotaExhaustedError
 
@@ -20,7 +21,11 @@ from .errors import QuotaExhaustedError
 class LLMChain(LLMProvider):
     """Essaie chaque candidat dans l'ordre, bascule au suivant si épuisé."""
 
-    def __init__(self, candidates: list[tuple[str, LLMProvider]]) -> None:
+    def __init__(
+        self,
+        candidates: list[tuple[str, LLMProvider]],
+        tracker: UsageTracker | None = None,
+    ) -> None:
         if not candidates:
             raise LLMError(
                 "Aucun fournisseur d'IA configuré. Ajoute au moins une clé API "
@@ -28,6 +33,8 @@ class LLMChain(LLMProvider):
             )
         self._candidates = candidates
         self._exhausted: set[int] = set()
+        # Facultatif : sans suivi, la chaîne fonctionne exactement pareil.
+        self._tracker = tracker
 
     @property
     def active_label(self) -> str:
@@ -52,11 +59,11 @@ class LLMChain(LLMProvider):
 
         # On repart toujours du meilleur candidat encore disponible : un échec
         # ponctuel ne doit pas nous bloquer durablement sur un modèle plus faible.
-        for index, (_label, provider) in enumerate(self._candidates):
+        for index, (label, provider) in enumerate(self._candidates):
             if index in self._exhausted:
                 continue
             try:
-                return await provider.complete(
+                answer = await provider.complete(
                     system, user,
                     json_mode=json_mode, temperature=temperature, max_tokens=max_tokens,
                 )
@@ -68,6 +75,10 @@ class LLMChain(LLMProvider):
                 # Échec ponctuel (réseau, réponse invalide) : on tente le suivant
                 # sans condamner définitivement ce candidat.
                 last_error = exc
+            else:
+                if self._tracker is not None:
+                    self._tracker.record(label, estimate_tokens(system, user, answer))
+                return answer
 
         raise LLMError(
             "Tous les fournisseurs d'IA configurés sont indisponibles ou à court "

@@ -56,7 +56,7 @@ def _default_fallbacks() -> list[LLMCandidate]:
     """
     return [
         # Même fournisseur, modèle plus léger : consomme bien moins de tokens.
-        LLMCandidate(name="groq", model="llama-3.1-8b-instant"),
+        LLMCandidate(name="groq", model="openai/gpt-oss-20b"),
         # Puis d'autres comptes gratuits, avec leurs propres quotas quotidiens.
         LLMCandidate(name="cerebras", model="gpt-oss-120b"),
         # Gemini gratuit est limité à ~10 requêtes/min : espacement plus large.
@@ -67,7 +67,7 @@ def _default_fallbacks() -> list[LLMCandidate]:
 
 class LLMConfig(BaseModel):
     name: str = "groq"
-    model: str = "llama-3.3-70b-versatile"
+    model: str = "openai/gpt-oss-120b"
     temperature: float = 0.4
     max_document_chars: int = 24000
     min_interval_s: float = 2.0  # espacement minimal entre appels (évite les 429 Groq)

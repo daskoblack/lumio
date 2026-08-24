@@ -141,8 +141,8 @@ def test_factory_builds_full_chain_in_priority_order(monkeypatch):
 
     chain = build_llm(Config())
     assert chain.available_labels == [
-        "groq/llama-3.3-70b-versatile",   # principal
-        "groq/llama-3.1-8b-instant",      # même compte, modèle plus léger
+        "groq/openai/gpt-oss-120b",       # principal
+        "groq/openai/gpt-oss-20b",        # même compte, modèle plus léger
         "cerebras/gpt-oss-120b",
         "gemini/gemini-2.5-flash-lite",
         "mistral/mistral-small-latest",

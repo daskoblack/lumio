@@ -82,6 +82,18 @@ export interface LlmStatus {
   error: string | null;
 }
 
+/** Réserve d'IA gratuite : jetons estimés, jamais un décompte exact. */
+export interface UsageStatus {
+  used_today: number;
+  capacity: number;
+  per_provider_limit: number;
+  providers: string[];
+  /** Coût attendu du cours demandé, ou null si aucun cours n'a été précisé. */
+  course_estimate: number | null;
+  /** null quand aucune estimation n'a pu être calculée. */
+  fits: boolean | null;
+}
+
 export interface ProgressEvent {
   stage: 'script' | 'synthesize' | 'render' | 'subtitle' | 'regenerate';
   label: string;

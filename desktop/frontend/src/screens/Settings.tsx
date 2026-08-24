@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { bridge } from '../api/bridge';
 import { VoicePreviewButton } from '../components/VoicePreviewButton';
-import { LLM_PROVIDERS, type LlmProvider, type LlmStatus, type Voice } from '../types';
+import { LLM_PROVIDERS, type LlmProvider, type LlmStatus, type UsageStatus, type Voice } from '../types';
 import './settings.css';
 
 /** Ce que l'utilisateur doit savoir sur chaque fournisseur, sans jargon. */
@@ -34,6 +34,7 @@ export function Settings() {
   const [voices, setVoices] = useState<Voice[]>([]);
   const [shown, setShown] = useState<Record<string, boolean>>({});
   const [status, setStatus] = useState<LlmStatus | null>(null);
+  const [usage, setUsage] = useState<UsageStatus | null>(null);
   const [saved, setSaved] = useState(false);
 
   useEffect(() => {
@@ -45,6 +46,7 @@ export function Settings() {
     });
     bridge.listVoices().then(setVoices);
     bridge.llmStatus().then(setStatus);
+    bridge.usageStatus().then(setUsage).catch(() => setUsage(null));
   }, []);
 
   async function handleSave() {
@@ -52,6 +54,7 @@ export function Settings() {
     for (const p of LLM_PROVIDERS) updates[`${p}_api_key`] = keys[p] ?? '';
     await bridge.saveSettings(updates, voiceId);
     setStatus(await bridge.llmStatus());
+    setUsage(await bridge.usageStatus().catch(() => null));
     setSaved(true);
     setTimeout(() => setSaved(false), 2500);
   }
@@ -115,6 +118,34 @@ export function Settings() {
               ? "Aucune intelligence artificielle configurée : Lumio ne pourra pas écrire de cours."
               : `${activeCount} option${activeCount > 1 ? 's' : ''} disponible${activeCount > 1 ? 's' : ''} — Lumio bascule tout seul si la réserve du jour s'épuise.`}
           </div>
+
+          {usage && activeCount > 0 && (
+            <div className="usage-panel">
+              <div className="usage-bar" aria-hidden="true">
+                <div
+                  className="usage-fill"
+                  style={{ width: `${Math.min(100, Math.round((usage.used_today / usage.capacity) * 100))}%` }}
+                />
+              </div>
+              <p className="usage-text">
+                Réserve du jour utilisée à environ{' '}
+                <strong>{Math.min(100, Math.round((usage.used_today / usage.capacity) * 100))} %</strong>
+                {' — '}
+                {(() => {
+                  const restants = Math.floor((usage.capacity - usage.used_today) / 55_000);
+                  if (restants <= 0) return "il n'y a plus de quoi produire un cours entier aujourd'hui.";
+                  if (restants === 1) return 'de quoi produire encore environ un cours de 40 pages.';
+                  return `de quoi produire encore environ ${restants} cours de 40 pages.`;
+                })()}
+              </p>
+              <p className="usage-hint">
+                {activeCount < 4
+                  ? `Chaque clé supplémentaire agrandit cette réserve. Il t'en reste ${4 - activeCount} à ajouter, toutes gratuites.`
+                  : 'Toutes les clés sont configurées : ta réserve est au maximum.'}
+                {' '}Elle repart à zéro chaque jour.
+              </p>
+            </div>
+          )}
         </div>
 
         <div className="card field-card">

@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { bridge } from '../api/bridge';
 import { DurationSlider } from '../components/DurationSlider';
 import { ProgressBar } from '../components/ProgressBar';
-import { isApiError, type Course, type ProgressEvent } from '../types';
+import { isApiError, type Course, type ProgressEvent, type UsageStatus } from '../types';
 import './sections.css';
 
 type GenerationStage = Exclude<ProgressEvent['stage'], 'regenerate'>;
@@ -55,6 +55,7 @@ export function Sections({
   const [progress, setProgress] = useState<ProgressEvent | null>(null);
   const [genError, setGenError] = useState<string | null>(null);
   const [subtitles, setSubtitles] = useState(false);
+  const [usage, setUsage] = useState<UsageStatus | null>(null);
   // La progression ne doit jamais reculer, même si un évènement arrive
   // dans le désordre : on ne garde que le maximum atteint.
   const [maxPercent, setMaxPercent] = useState(0);
@@ -65,6 +66,9 @@ export function Sections({
     for (const s of course.sections) next[s.index] = s.target_duration_s ?? s.estimated_duration_s;
     setLocalSeconds(next);
     setSubtitles(course.subtitles_enabled);
+    // Réserve d'IA : prévenir AVANT une génération de plusieurs minutes vaut
+    // mieux que de découvrir la limite à mi-parcours.
+    bridge.usageStatus(course.id).then(setUsage).catch(() => setUsage(null));
   }, [course]);
 
   useEffect(() => {
@@ -200,6 +204,18 @@ export function Sections({
       </div>
 
       {genError && <p className="home-error">{genError}</p>}
+
+      {usage && usage.fits === false && (
+        <p className="warning-banner">
+          {usage.providers.length <= 1
+            ? "Ta réserve d'intelligence artificielle gratuite du jour risque de ne pas suffire "
+              + 'pour ce cours. Ajoute une deuxième clé dans Réglages pour doubler ta réserve '
+              + '(gratuit), sinon la fin du cours sera de moins bonne qualité.'
+            : "Ta réserve d'intelligence artificielle gratuite du jour risque de ne pas suffire "
+              + 'pour ce cours. Tu peux réduire les durées, ajouter une clé de plus dans '
+              + 'Réglages, ou reprendre demain — la réserve repart à zéro chaque jour.'}
+        </p>
+      )}
 
       <div className="card generate-bar">
         <div className="generate-left">

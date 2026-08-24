@@ -11,13 +11,13 @@ providers:
     # génération continue sur le maillon suivant au lieu d'échouer.
     # Un maillon dont la clé API n'est pas renseignée est simplement ignoré.
     name: groq
-    model: llama-3.3-70b-versatile   # modèle principal (le plus capable)
+    model: openai/gpt-oss-120b       # modèle principal (le plus capable)
     temperature: 0.4
-    max_document_chars: 24000        # troncature de sécurité pour l'analyse
+    max_document_chars: 24000        # budget de l'analyse (extrait de CHAQUE page)
     min_interval_s: 2.0              # espacement minimal entre appels (évite les 429)
     fallbacks:
       - name: groq                   # même compte, modèle plus léger
-        model: llama-3.1-8b-instant
+        model: openai/gpt-oss-20b
       - name: cerebras               # 1 000 000 tokens/jour gratuits
         model: gpt-oss-120b
       - name: gemini                 # ~10 requêtes/min en gratuit -> espacement plus large

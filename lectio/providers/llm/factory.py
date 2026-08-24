@@ -8,8 +8,11 @@ from __future__ import annotations
 
 from ...core.config import Config, LLMCandidate
 from ...core.exceptions import LLMError
+from ...core.usage import UsageTracker
 from .base import LLMProvider
 from .chain import LLMChain
+
+_USAGE_FILE = "usage.json"
 
 
 def _build_one(name: str, model: str, temperature: float, min_interval_s: float) -> LLMProvider:
@@ -70,4 +73,8 @@ def build_llm(config: Config) -> LLMProvider:
             continue  # paquet manquant ou fournisseur inconnu : on ignore ce maillon
         candidates.append((f"{candidate.name}/{candidate.model}", provider))
 
-    return LLMChain(candidates)
+    # Le suivi de consommation vit dans l'espace de travail, à côté des jobs :
+    # la fabrique le construit elle-même, ce qui évite de le faire transiter
+    # par tout l'orchestrateur alors que seule la chaîne s'en sert.
+    tracker = UsageTracker(config.workspace_path / _USAGE_FILE)
+    return LLMChain(candidates, tracker)

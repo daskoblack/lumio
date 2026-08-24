@@ -33,6 +33,22 @@
   color: var(--danger);
   background: color-mix(in srgb, var(--danger) 12%, transparent);
 }
+
+.usage-panel { margin-top: 12px; display: flex; flex-direction: column; gap: 7px; }
+.usage-bar {
+  height: 7px;
+  border-radius: var(--radius-pill);
+  background: var(--glass-strong);
+  overflow: hidden;
+}
+.usage-fill {
+  height: 100%;
+  background: var(--glow);
+  border-radius: var(--radius-pill);
+  transition: width 0.3s;
+}
+.usage-text { font-size: 13.5px; color: var(--ink-dim); margin: 0; }
+.usage-hint { font-size: 12.5px; color: var(--ink-faint); margin: 0; line-height: 1.45; }
 .field-input-wrap { position: relative; display: flex; align-items: center; }
 .field-input {
   width: 100%;
