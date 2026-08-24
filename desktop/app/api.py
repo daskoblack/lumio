@@ -11,6 +11,7 @@ pipeline Python (synchrone du point de vue de pywebview) et du JSON simple.
 from __future__ import annotations
 
 import asyncio
+import functools
 import json
 import threading
 
@@ -20,7 +21,7 @@ from lectio.core.config import Config
 from lectio.core.exceptions import LectioError
 from lectio.jobs.orchestrator import Orchestrator
 
-from . import media_server, paths
+from . import crash, media_server, paths
 from . import settings as settings_store
 
 
@@ -30,6 +31,57 @@ def _course_dict(course) -> dict:
 
 def _error_dict(exc: Exception) -> dict:
     return {"error": str(exc)}
+
+
+def _unexpected_dict(exc: Exception) -> dict:
+    """Erreur non prévue (disque plein, réseau, bogue) : on la rend
+    affichable ET on en garde la trace complète.
+
+    Sans cela, l'exception traverse pywebview, la promesse JavaScript est
+    rejetée, et l'interface n'affiche RIEN : l'utilisateur clique, attend,
+    et rien ne se passe — sans la moindre explication.
+    """
+    report = crash.write_report(exc)
+    detail = f"{type(exc).__name__} : {exc}"
+    if report is not None:
+        return {"error": f"{detail} (rapport enregistré dans {report})"}
+    return {"error": detail}
+
+
+def _guarded(method):
+    """Méthode dont l'interface sait déjà interpréter un {"error": ...}."""
+
+    @functools.wraps(method)
+    def wrapper(self, *args, **kwargs):
+        try:
+            return method(self, *args, **kwargs)
+        except LectioError as exc:
+            return _error_dict(exc)
+        except Exception as exc:  # noqa: BLE001 - filet volontairement large
+            return _unexpected_dict(exc)
+
+    return wrapper
+
+
+def _safe(default):
+    """Méthode dont le contrat ne prévoit PAS d'erreur (liste, chaîne, rien).
+
+    Y renvoyer un dictionnaire d'erreur casserait l'interface : on retourne
+    une valeur neutre, en consignant la cause dans le journal.
+    """
+
+    def decorate(method):
+        @functools.wraps(method)
+        def wrapper(self, *args, **kwargs):
+            try:
+                return method(self, *args, **kwargs)
+            except Exception as exc:  # noqa: BLE001 - filet volontairement large
+                crash.write_report(exc)
+                return default() if callable(default) else default
+
+        return wrapper
+
+    return decorate
 
 
 class Api:
@@ -83,9 +135,11 @@ class Api:
         return emit
 
     # --- Réglages (clé API + voix), modifiables à tout moment ---
+    @_safe(dict)
     def get_settings(self) -> dict:
         return settings_store.load_settings()
 
+    @_guarded
     def save_settings(self, updates: dict | None = None, voice_id: str | None = None) -> dict:
         """Enregistre les réglages fournis (clés API et/ou voix).
 
@@ -107,6 +161,7 @@ class Api:
         self._orchestrator_instance = Orchestrator(self._config)
         return updated
 
+    @_guarded
     def llm_status(self) -> dict:
         """Fournisseurs d'IA réellement utilisables (pour l'écran Réglages)."""
         from lectio.core.exceptions import LLMError
@@ -118,6 +173,7 @@ class Api:
             return {"configured": [], "error": str(exc)}
         return {"configured": getattr(chain, "available_labels", []), "error": None}
 
+    @_safe(None)
     def usage_status(self, job_id: str | None = None) -> dict:
         """Réserve d'IA gratuite : ce qui a déjà été consommé aujourd'hui, la
         capacité totale selon le nombre de clés, et le coût attendu d'un cours.
@@ -151,6 +207,7 @@ class Api:
             "fits": None if estimate is None else (used + estimate) <= capacity,
         }
 
+    @_safe(list)
     def list_voices(self) -> list[dict]:
         import edge_tts
 
@@ -162,6 +219,7 @@ class Api:
             ]
         return sorted(self._run(_list()), key=lambda v: v["locale"])
 
+    @_guarded
     def preview_voice(self, voice_id: str) -> dict:
         """Synthétise une phrase de démonstration et la renvoie en base64
         (pas de fichier à gérer côté JS : lu directement par un <audio>)."""
@@ -190,6 +248,7 @@ class Api:
             return _error_dict(exc)
 
     # --- Sélection de fichier natif ---
+    @_safe(None)
     def pick_pdf_file(self) -> str | None:
         if self._window is None:
             return None
@@ -199,6 +258,7 @@ class Api:
         return result[0] if result else None
 
     # --- Étape 1 : analyse ---
+    @_guarded
     def analyze(self, pdf_path: str, voice_id: str | None = None, title: str | None = None) -> dict:
         orch = self._orchestrator()
         try:
@@ -208,6 +268,7 @@ class Api:
         return _course_dict(course)
 
     # --- Durées cibles (une ou plusieurs sections) ---
+    @_guarded
     def set_durations(self, job_id: str, section_indices: list[int], duration_s: float | None) -> dict:
         orch = self._orchestrator()
         try:
@@ -218,6 +279,7 @@ class Api:
             return _error_dict(exc)
         return _course_dict(course)
 
+    @_guarded
     def set_subtitles(self, job_id: str, enabled: bool) -> dict:
         orch = self._orchestrator()
         try:
@@ -227,6 +289,7 @@ class Api:
             return _error_dict(exc)
         return _course_dict(course)
 
+    @_guarded
     def rename_course(self, job_id: str, new_title: str) -> dict:
         orch = self._orchestrator()
         try:
@@ -237,6 +300,7 @@ class Api:
         return _course_dict(course)
 
     # --- Étapes individuelles (utiles pour ré-essayer une étape précise) ---
+    @_guarded
     def run_script(self, job_id: str) -> dict:
         orch = self._orchestrator()
         try:
@@ -245,6 +309,7 @@ class Api:
             return _error_dict(exc)
         return _course_dict(course)
 
+    @_guarded
     def run_synthesize(self, job_id: str) -> dict:
         orch = self._orchestrator()
         try:
@@ -253,6 +318,7 @@ class Api:
             return _error_dict(exc)
         return _course_dict(course)
 
+    @_guarded
     def run_render(self, job_id: str) -> dict:
         orch = self._orchestrator()
         try:
@@ -261,6 +327,7 @@ class Api:
             return _error_dict(exc)
         return _course_dict(course)
 
+    @_guarded
     def run_subtitle(self, job_id: str) -> dict:
         orch = self._orchestrator()
         try:
@@ -270,6 +337,7 @@ class Api:
         return _course_dict(course)
 
     # --- Raccourci : enchaîne synthesize + render + subtitle ---
+    @_guarded
     def run_build(self, job_id: str) -> dict:
         orch = self._orchestrator()
 
@@ -285,6 +353,7 @@ class Api:
         return _course_dict(course)
 
     # --- Consultation ---
+    @_guarded
     def get_job(self, job_id: str) -> dict:
         orch = self._orchestrator()
         try:
@@ -293,10 +362,12 @@ class Api:
             return _error_dict(exc)
         return _course_dict(course)
 
+    @_safe(list)
     def list_jobs(self) -> list[dict]:
         orch = self._orchestrator()
         return [_course_dict(c) for c in orch.store.list_jobs()]
 
+    @_safe(None)
     def open_output_folder(self, job_id: str) -> None:
         import subprocess
 
@@ -306,6 +377,7 @@ class Api:
             subprocess.Popen(["explorer", str(folder)])  # noqa: S603, S607
 
     # --- Lecteur intégré + régénération ciblée d'une section ---
+    @_safe(None)
     def video_url(self, job_id: str) -> str | None:
         """URL locale de la vidéo finie, pour un <video src=...> dans l'écran Lecture."""
         orch = self._orchestrator()
@@ -314,6 +386,7 @@ class Api:
             return None
         return f"http://127.0.0.1:{self._media_port}/{job_id}/output/video_final.mp4"
 
+    @_guarded
     def regenerate_section(self, job_id: str, section_index: int, instruction: str) -> dict:
         orch = self._orchestrator()
         try:

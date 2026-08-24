@@ -116,6 +116,10 @@ export function Sections({
       if (isApiError(built)) { setGenError(friendlyError(built.error)); return; }
       onCourseUpdate(built);
       onFinished();
+    } catch (e) {
+      // Sans ce filet, une erreur imprevue laissait l'ecran de generation
+      // revenir au formulaire sans le moindre message.
+      setGenError(friendlyError(String(e)));
     } finally {
       unsubscribe();
       setGenerating(false);

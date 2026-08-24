@@ -37,6 +37,11 @@ export function Home({ onCourseReady }: { onCourseReady: (course: Course) => voi
         return;
       }
       onCourseReady(result);
+    } catch (e) {
+      // Filet ultime : si l'appel echoue sans reponse exploitable, l'ancien
+      // code laissait l'ecran muet -- l'utilisateur cliquait, attendait, et
+      // rien ne se passait.
+      setError(friendlyError(String(e)));
     } finally {
       setBusy(false);
     }

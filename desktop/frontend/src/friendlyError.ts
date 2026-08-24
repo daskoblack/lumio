@@ -94,6 +94,26 @@ const RULES: Rule[] = [
       + 'le texte et enregistrer la voix. Vérifie ta connexion, puis réessaie.',
   },
 
+  // --- Système : erreurs Python remontées telles quelles -------------------
+  {
+    match: has('No space left', 'Errno 28', 'espace insuffisant', 'disk full'),
+    message:
+      "Il n'y a plus assez d'espace libre sur ton disque pour enregistrer la "
+      + 'vidéo. Libère de la place, puis relance la génération.',
+  },
+  {
+    match: has('Permission denied', 'Errno 13', 'Accès refusé'),
+    message:
+      "Lumio n'a pas le droit d'écrire à cet endroit. Ferme la vidéo si elle "
+      + "est ouverte dans un autre logiciel, puis réessaie.",
+  },
+  {
+    match: has('MemoryError', 'mémoire insuffisante'),
+    message:
+      "Ton ordinateur manque de mémoire pour terminer cette vidéo. Ferme "
+      + 'quelques applications, puis relance la génération.',
+  },
+
   // --- Montage vidéo ------------------------------------------------------
   {
     match: has('Commande échouée', 'ffmpeg', 'ffprobe'),

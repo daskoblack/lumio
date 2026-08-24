@@ -75,6 +75,8 @@ export function Player({
       setVideoSrc(url);
       setRefreshKey((k) => k + 1);  // casse le cache : même nom de fichier, nouveau contenu
       setInstructions((prev) => ({ ...prev, [sectionIndex]: '' }));
+    } catch (e) {
+      setError(friendlyError(String(e)));
     } finally {
       unsubscribe();
       setRegenerating(null);

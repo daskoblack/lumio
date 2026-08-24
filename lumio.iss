@@ -3,7 +3,7 @@
 ; (dist/Lumio/). Compiler avec : iscc lumio.iss
 
 #define MyAppName "Lumio"
-#define MyAppVersion "1.2.2"
+#define MyAppVersion "1.2.3"
 #define MyAppExeName "Lumio.exe"
 
 [Setup]
