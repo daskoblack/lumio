@@ -146,3 +146,58 @@ def test_le_budget_de_mots_n_enfle_pas_avec_le_texte_cumule():
     assert max(suivantes) - min(suivantes) <= 15, (
         f"le budget enfle encore d'une page a l'autre : {budgets}"
     )
+
+
+# --- Structures de diapositives REELLES ------------------------------------
+# La version initiale exigeait que la page precedente soit un PREFIXE exact.
+# Elle echouait donc sur la plupart des supports reels : un numero de page, un
+# pied de page ou un simple changement d'ordre de lecture suffisait a la
+# desactiver -- silencieusement.
+
+@pytest.mark.parametrize("nom,precedente,courante", [
+    (
+        "ajout en fin de page",
+        "Titre. Etape 1 : absorption.",
+        "Titre. Etape 1 : absorption. Etape 2 : dissociation.",
+    ),
+    (
+        "liste a puces",
+        "Titre\n- Etape 1 : absorption",
+        "Titre\n- Etape 1 : absorption\n- Etape 2 : dissociation",
+    ),
+    (
+        "numero de page qui change",
+        "Titre. Etape 1 : absorption. 1/5",
+        "Titre. Etape 1 : absorption. Etape 2 : dissociation. 2/5",
+    ),
+    (
+        "nouvel element en tete de lecture",
+        "Titre. Etape 1 : absorption.",
+        "Titre. Etape 2 : dissociation. Etape 1 : absorption.",
+    ),
+    (
+        "pied de page repete",
+        "Titre. Etape 1. Photosynthese - Lycee",
+        "Titre. Etape 1. Etape 2. Photosynthese - Lycee",
+    ),
+])
+def test_deduplication_sur_structures_reelles(nom, precedente, courante):
+    from lectio.core.textutil import dedupe_cumulative_source
+
+    resultat = dedupe_cumulative_source(precedente, courante)
+    assert "Etape 1" not in resultat, f"{nom} : l'etape deja traitee est encore transmise"
+    assert "Etape 2" in resultat, f"{nom} : la nouveaute a ete perdue"
+
+
+def test_la_deduplication_ne_coupe_jamais_un_mot():
+    """L'ancienne decoupe par position tronquait en plein mot des qu'un
+    caractere s'intercalait (« pe 2 : dissociation »)."""
+    from lectio.core.textutil import dedupe_cumulative_source
+
+    resultat = dedupe_cumulative_source(
+        "Titre. Etape 1 : absorption. 1/5",
+        "Titre. Etape 1 : absorption. Etape 2 : dissociation. 2/5",
+    )
+    for mot in resultat.split():
+        assert mot.strip(".,;:/") == "" or len(mot) > 1 or mot.isalnum()
+    assert "Etape 2 : dissociation." in resultat

@@ -77,41 +77,66 @@ def clean_narration(text: str) -> str:
     return cleaned.strip()
 
 
-# Seuils de détection du texte source cumulatif (frises/animations en
-# construction progressive : chaque page PDF réaffiche tout ce qui a déjà été
-# révélé + un élément de plus). En dessous, on ne touche à rien : mieux vaut
-# rater un vrai doublon que couper du contenu légitime par erreur.
-# Vérifié en conditions réelles : une première phase de frise peut être
-# courte (« Phase 1 : origines. » ~20 caractères) ; un seuil trop haut la
-# laissait passer sans déduplication. 15 reste sûr contre un simple en-tête
-# partagé (« Chapitre 3 », 10 caractères, voir test dédié).
-_DEDUPE_MIN_OVERLAP_CHARS = 15
-_DEDUPE_MIN_SIMILARITY = 0.85
+# Deux passages sont « les mêmes » au-delà de ce seuil de ressemblance. Assez
+# haut pour ne pas confondre deux phrases distinctes du même cours, assez
+# souple pour absorber une coupure de ligne ou une ponctuation qui change.
+_DEDUPE_MIN_SIMILARITY = 0.90
+# En dessous, un passage est trop court pour qu'une ressemblance signifie
+# quoi que ce soit (« 1/5 », « Fig. 2 »).
+_DEDUPE_MIN_SEGMENT_CHARS = 12
+
+# Volontairement SANS « : » : en français il introduit le plus souvent la
+# suite de la même idée (« Étape 2 : dissociation »), et découper dessus
+# fragmenterait le sens au lieu de séparer deux passages distincts.
+_SEGMENT_SPLIT_RE = re.compile(r"(?<=[.!?;])\s+|\n+")
+
+
+def _segments(text: str) -> list[str]:
+    """Découpe une page en passages comparables (lignes et phrases)."""
+    return [part.strip() for part in _SEGMENT_SPLIT_RE.split(text) if part.strip()]
+
+
+def _already_seen(segment: str, previous: list[str]) -> bool:
+    """Ce passage figurait-il déjà, où que ce soit, sur la page précédente ?"""
+    normalized = " ".join(segment.split()).lower()
+    for earlier in previous:
+        other = " ".join(earlier.split()).lower()
+        if normalized == other:
+            return True
+        if len(normalized) < _DEDUPE_MIN_SEGMENT_CHARS:
+            continue  # trop court : seule l'égalité stricte compte
+        if difflib.SequenceMatcher(None, normalized, other).ratio() >= _DEDUPE_MIN_SIMILARITY:
+            return True
+    return False
 
 
 def dedupe_cumulative_source(previous_source: str, current_source: str) -> str:
-    """Retire, du texte source de CETTE page, ce qui répète déjà la page
-    précédente presque mot pour mot en début de texte.
+    """Retire du texte de CETTE page les passages déjà présents sur la précédente.
 
-    Cas visé : une frise en 5 phases exportée en 'build' PowerPoint, où la
-    page 3 contient tout le texte de la page 2 (elle-même contenant celui de
-    la page 1) suivi de la nouvelle phase. Sans ça, on demande au modèle
-    d'« expliquer le contenu de cette page », qui grossit à chaque page —
-    un modèle fidèle à la consigne récapitule donc de plus en plus.
+    Cas visé : une diapositive qui se dévoile étape par étape (animation
+    PowerPoint exportée en PDF). Chaque page réaffiche tout ce qui précède,
+    plus un élément. Sans ce filtrage, on demande au modèle d'« expliquer le
+    contenu de cette page », qui grossit à chaque étape — un modèle fidèle à
+    la consigne récapitule donc de plus en plus.
 
-    Ne touche JAMAIS aux images rendues (la frise complète doit rester
+    La comparaison se fait passage par passage et NON par préfixe : une
+    version antérieure exigeait que la page précédente soit un préfixe exact,
+    ce qui échouait dès qu'un numéro de page, un pied de page, ou un simple
+    changement d'ordre de lecture s'intercalait — c'est-à-dire sur la plupart
+    des supports réels.
+
+    Ne touche JAMAIS aux images rendues (la diapositive complète doit rester
     visible à l'écran) : uniquement le texte envoyé au modèle pour savoir
     quoi raconter.
     """
-    prev_norm = " ".join(previous_source.split())
-    curr_norm = " ".join(current_source.split())
-    if len(prev_norm) < _DEDUPE_MIN_OVERLAP_CHARS or not curr_norm or prev_norm == curr_norm:
+    previous = _segments(previous_source)
+    current = _segments(current_source)
+    if not previous or not current:
         return current_source
 
-    prefix_len = min(len(prev_norm), len(curr_norm))
-    similarity = difflib.SequenceMatcher(None, prev_norm, curr_norm[:prefix_len]).ratio()
-    if similarity < _DEDUPE_MIN_SIMILARITY:
-        return current_source  # pas un vrai chevauchement, juste une coïncidence
-
-    remainder = curr_norm[prefix_len:].strip()
-    return remainder or current_source  # rien de nouveau -> on garde tout, par sécurité
+    kept = [segment for segment in current if not _already_seen(segment, previous)]
+    if not kept:
+        return current_source  # rien de neuf : on garde tout, par sécurité
+    if len(kept) == len(current):
+        return current_source  # aucun recoupement : page sans lien, texte intact
+    return "\n".join(kept)
